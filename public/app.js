@@ -31,9 +31,9 @@ let expenseDonutChartInstance = null;
 
 // Currency formatter
 function fmtMoney(amount, currencyCode = null) {
-  const code = currencyCode || APP.settings.base_currency || 'USD';
+  const code = currencyCode || APP.settings.base_currency || 'NZD';
   const currObj = APP.currencies.find((c) => c.code === code);
-  const symbol = currObj ? currObj.symbol : '$';
+  const symbol = currObj ? currObj.symbol : (code === 'NZD' ? 'NZ$' : '$');
   const num = Number(amount) || 0;
   const isNeg = num < -0.004;
   const absStr = Math.abs(num).toLocaleString('en-US', {
@@ -86,9 +86,9 @@ async function loadBootstrap() {
 
     // Header & Sidebar badges
     document.getElementById('brandOrgName').textContent = APP.settings.organization_name || 'Personal Ledger Pro';
-    const baseCode = APP.settings.base_currency || 'USD';
+    const baseCode = APP.settings.base_currency || 'NZD';
     const baseCurr = APP.currencies.find((c) => c.code === baseCode);
-    document.getElementById('baseCurrencyBadge').textContent = `Base: ${baseCode} (${baseCurr ? baseCurr.symbol : '$'})`;
+    document.getElementById('baseCurrencyBadge').textContent = `Home: ${baseCode} (${baseCurr ? baseCurr.symbol : 'NZ$'})`;
     document.getElementById('navTxCount').textContent = APP.transactions.length;
 
     const openDocs = APP.invoicesBills.filter((d) => d.status === 'OPEN').length;
@@ -174,7 +174,7 @@ function populateAccountSelectors() {
   const curImp = impSelect.value;
   const primaryUploadAccounts = APP.accounts.filter((a) => ['ASSET', 'LIABILITY', 'EQUITY'].includes(a.type));
   impSelect.innerHTML = primaryUploadAccounts.map((a) =>
-    `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${a.subtype || a.type} • ${fmtMoney(a.balance)})</option>`
+    `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${a.subtype || a.type} • ${fmtMoney(a.balance, a.currency)})</option>`
   ).join('');
   if (curImp) impSelect.value = curImp;
 
@@ -208,10 +208,22 @@ function populateAccountSelectors() {
     .map((a) => `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${a.type})</option>`)
     .join('');
 
-  // Currency selector in Simple Modal
-  document.getElementById('simpleTxCurrency').innerHTML = APP.currencies
-    .map((c) => `<option value="${c.code}">${c.code} (${c.symbol})</option>`)
+  // Currency selectors in Simple Modal, Account Modal, and Settings
+  const currOptionsHtml = APP.currencies
+    .map((c) => `<option value="${escapeHtml(c.code)}">${escapeHtml(c.code)} (${escapeHtml(c.symbol)})</option>`)
     .join('');
+  document.getElementById('simpleTxCurrency').innerHTML = currOptionsHtml;
+  const accCurrSelect = document.getElementById('accCurrency');
+  if (accCurrSelect && APP.currencies.length > 0) {
+    const prevAccCurr = accCurrSelect.value;
+    accCurrSelect.innerHTML = currOptionsHtml;
+    accCurrSelect.value = prevAccCurr || APP.settings.base_currency || 'NZD';
+  }
+  const setBaseSelect = document.getElementById('setBaseCurrency');
+  if (setBaseSelect && APP.currencies.length > 0) {
+    setBaseSelect.innerHTML = currOptionsHtml;
+    setBaseSelect.value = APP.settings.base_currency || 'NZD';
+  }
 
   populateInvoiceBillAccounts();
 }
@@ -972,12 +984,15 @@ function renderCOAView() {
     EXPENSE: 'bg-amber-50 text-amber-800 border-amber-200'
   };
 
-  document.getElementById('coaTableBody').innerHTML = filtered.map((a) => `
+  document.getElementById('coaTableBody').innerHTML = filtered.map((a) => {
+    const acctCurr = a.currency || APP.settings.base_currency || 'NZD';
+    return `
     <tr class="hover:bg-slate-50">
       <td class="py-3 px-4 font-mono font-bold text-slate-900">${escapeHtml(a.code)}</td>
       <td class="py-3 px-4">
-        <div class="font-semibold text-slate-900 flex items-center gap-1.5">
+        <div class="font-semibold text-slate-900 flex items-center gap-1.5 flex-wrap">
           <span>${escapeHtml(a.name)}</span>
+          <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-700 border border-slate-300 text-[10px] font-mono font-bold" title="Account Currency">${escapeHtml(acctCurr)}</span>
           ${!a.is_system ? '<span class="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-semibold">Custom</span>' : ''}
         </div>
         <div class="text-[11px] text-slate-400">${escapeHtml(a.description || '')}</div>
@@ -987,15 +1002,15 @@ function renderCOAView() {
         <span class="text-[11px] text-slate-500 ml-1.5 font-mono">${escapeHtml(a.subtype)}</span>
       </td>
       <td class="py-3 px-4 text-slate-500">${escapeHtml(a.tax_category || '—')}</td>
-      <td class="py-3 px-4 text-right font-mono text-slate-600">${fmtMoney(a.total_debit)}</td>
-      <td class="py-3 px-4 text-right font-mono text-slate-600">${fmtMoney(a.total_credit)}</td>
-      <td class="py-3 px-4 text-right font-mono font-bold text-slate-900">${fmtMoney(a.balance)}</td>
+      <td class="py-3 px-4 text-right font-mono text-slate-600">${fmtMoney(a.total_debit, acctCurr)}</td>
+      <td class="py-3 px-4 text-right font-mono text-slate-600">${fmtMoney(a.total_credit, acctCurr)}</td>
+      <td class="py-3 px-4 text-right font-mono font-bold text-slate-900">${fmtMoney(a.balance, acctCurr)}</td>
       <td class="py-3 px-4 text-right whitespace-nowrap">
         <div class="inline-flex items-center gap-1.5">
           <button onclick="openAccountLedgerModal(${a.id})" class="px-2.5 py-1 rounded bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 font-semibold text-[11px] transition">
             Ledger (${a.line_count})
           </button>
-          <button onclick="openEditAccountModal(${a.id})" class="px-2.5 py-1 rounded border border-slate-300 hover:border-slate-800 hover:bg-slate-900 hover:text-white text-slate-700 font-semibold text-[11px] transition" title="Edit Account Code, Name, Type, or Balance">
+          <button onclick="openEditAccountModal(${a.id})" class="px-2.5 py-1 rounded border border-slate-300 hover:border-slate-800 hover:bg-slate-900 hover:text-white text-slate-700 font-semibold text-[11px] transition" title="Edit Account Code, Name, Type, Currency, or Balance">
             Edit
           </button>
           <button onclick="openDeleteAccountModal(${a.id})" class="px-2.5 py-1 rounded border border-rose-200 bg-rose-50/70 hover:bg-rose-600 hover:text-white text-rose-700 font-semibold text-[11px] transition" title="Delete or Reassign Account">
@@ -1004,7 +1019,8 @@ function renderCOAView() {
         </div>
       </td>
     </tr>
-  `).join('');
+  `;
+  }).join('');
 }
 
 async function openAccountLedgerModal(accountId) {
@@ -1814,7 +1830,7 @@ async function deleteRecurring(id) {
 // ================= 9. MULTI-CURRENCY & SETTINGS =================
 function renderSettingsView() {
   document.getElementById('setOrgName').value = APP.settings.organization_name || '';
-  document.getElementById('setBaseCurrency').value = APP.settings.base_currency || 'USD';
+  document.getElementById('setBaseCurrency').value = APP.settings.base_currency || 'NZD';
   document.getElementById('setTaxRate').value = APP.settings.tax_rate_estimate || '24';
 
   document.getElementById('currenciesTableBody').innerHTML = APP.currencies.map((c) => `
@@ -1925,7 +1941,7 @@ function openEditTransactionModal(entryId) {
   document.getElementById('simpleTxPayee').value = tx.payee || '';
   document.getElementById('simpleTxRef').value = tx.reference || '';
   document.getElementById('simpleTxMemo').value = tx.memo || '';
-  document.getElementById('simpleTxCurrency').value = tx.currency || APP.settings.base_currency || 'USD';
+  document.getElementById('simpleTxCurrency').value = tx.currency || APP.settings.base_currency || 'NZD';
   document.getElementById('simpleTxRate').value = Number(tx.exchange_rate || 1);
   document.getElementById('simpleTxTaxDeductible').checked = Boolean(tx.is_tax_deductible);
 
@@ -2207,7 +2223,7 @@ async function submitJournalEntryModal(event) {
   }
 }
 
-// New / Edit Account Modal (with custom Opening Balance Date / As-Of Date)
+// New / Edit Account Modal (with Currency & custom Opening Balance Date / As-Of Date)
 function openAccountModal() {
   document.getElementById('accEditId').value = '';
   document.getElementById('accountModalTitle').textContent = 'Add Account to Chart of Accounts';
@@ -2217,6 +2233,10 @@ function openAccountModal() {
   document.getElementById('accName').value = '';
   document.getElementById('accType').value = 'ASSET';
   document.getElementById('accSubtype').value = 'BANK';
+  const currEl = document.getElementById('accCurrency');
+  if (currEl) {
+    currEl.value = APP.settings.base_currency || 'NZD';
+  }
   document.getElementById('accOpeningBal').value = '0';
   if (document.getElementById('accOpeningDate')) {
     document.getElementById('accOpeningDate').value = '2026-01-01';
@@ -2245,6 +2265,15 @@ function openEditAccountModal(accountId) {
   }
   subSelect.value = acc.subtype || 'BANK';
 
+  const currSelect = document.getElementById('accCurrency');
+  if (currSelect) {
+    const accCurr = (acc.currency || APP.settings.base_currency || 'NZD').toUpperCase();
+    if (![...currSelect.options].some((o) => o.value === accCurr)) {
+      currSelect.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(accCurr)}">${escapeHtml(accCurr)}</option>`);
+    }
+    currSelect.value = accCurr;
+  }
+
   document.getElementById('accOpeningBal').value = Number(acc.balance || 0).toFixed(2);
   if (document.getElementById('accOpeningDate')) {
     document.getElementById('accOpeningDate').value = acc.opening_date || '2026-01-01';
@@ -2264,6 +2293,7 @@ async function submitNewAccount(event) {
       name: document.getElementById('accName').value.trim(),
       type: document.getElementById('accType').value,
       subtype: document.getElementById('accSubtype').value,
+      currency: document.getElementById('accCurrency')?.value || APP.settings.base_currency || 'NZD',
       opening_balance: parseFloat(document.getElementById('accOpeningBal').value || '0'),
       opening_date: document.getElementById('accOpeningDate')?.value || '2026-01-01',
       tax_category: document.getElementById('accTaxCat').value.trim(),
@@ -2275,13 +2305,13 @@ async function submitNewAccount(event) {
         method: 'PUT',
         body: JSON.stringify(payload)
       });
-      showToast(`Account "${payload.code} - ${payload.name}" updated (Opening Date: ${payload.opening_date})!`);
+      showToast(`Account "${payload.code} - ${payload.name}" (${payload.currency}) updated!`);
     } else {
       await apiFetch('/api/accounts', {
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      showToast(`Account "${payload.code} - ${payload.name}" added (Opening Date: ${payload.opening_date})!`);
+      showToast(`Account "${payload.code} - ${payload.name}" (${payload.currency}) added!`);
     }
 
     closeModal('accountModal');

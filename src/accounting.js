@@ -678,14 +678,17 @@ function getOrCreateCSVCategoryAccount(allAccounts, rawCategoryText, isInflow) {
   }
 
   const formattedName = clean.charAt(0).toUpperCase() + clean.slice(1);
+  const baseCurrRow = db.prepare("SELECT value FROM settings WHERE key = 'base_currency'").get();
+  const acctCurr = (baseCurrRow && baseCurrRow.value) ? baseCurrRow.value : 'NZD';
   const info = db.prepare(`
     INSERT INTO accounts (code, name, type, subtype, currency, description, tax_category, is_system, is_active)
-    VALUES (?, ?, ?, ?, 'USD', ?, ?, 0, 1)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1)
   `).run(
     String(nextCode),
     formattedName,
     targetType,
     targetSubtype,
+    acctCurr,
     `Auto-created from CSV Import category "${formattedName}"`,
     isInflow ? 'Income' : 'Expense'
   );
@@ -695,7 +698,8 @@ function getOrCreateCSVCategoryAccount(allAccounts, rawCategoryText, isInflow) {
     code: String(nextCode),
     name: formattedName,
     type: targetType,
-    subtype: targetSubtype
+    subtype: targetSubtype,
+    currency: acctCurr
   };
   allAccounts.push(newAcc);
   return { account: newAcc, created: true };

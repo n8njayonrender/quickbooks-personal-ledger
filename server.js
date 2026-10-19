@@ -346,7 +346,7 @@ app.put('/api/journal-entries/:id', (req, res) => {
       payee = existing.payee,
       reference = existing.reference,
       source_type = existing.source_type,
-      currency = existing.currency || 'USD',
+      currency = existing.currency || 'NZD',
       exchange_rate = existing.exchange_rate || 1.0,
       is_tax_deductible = existing.is_tax_deductible || 0,
       lines = []
@@ -485,8 +485,9 @@ app.delete('/api/journal-entries/:id', (req, res) => {
 // 7. CHART OF ACCOUNTS, OPENING BALANCES & GENERAL LEDGER DRILL-DOWN
 app.post('/api/accounts', (req, res) => {
   try {
-    const { code, name, type, subtype, currency = 'USD', description = '', tax_category = '', opening_balance = 0, opening_date = '2026-01-01' } = req.body;
+    const { code, name, type, subtype, currency = 'NZD', description = '', tax_category = '', opening_balance = 0, opening_date = '2026-01-01' } = req.body;
     if (!code || !name || !type) throw new Error('Account code, name, and type are required.');
+    const acctCurr = String(currency || 'NZD').toUpperCase().trim() || 'NZD';
 
     const result = db.prepare(`
       INSERT INTO accounts (code, name, type, subtype, currency, description, tax_category, is_system)
@@ -496,7 +497,7 @@ app.post('/api/accounts', (req, res) => {
       String(name).trim(),
       type,
       subtype || type,
-      currency,
+      acctCurr,
       description,
       tax_category
     );
@@ -522,12 +523,13 @@ app.post('/api/accounts', (req, res) => {
           memo: `Opening Balance for ${code} - ${name}`,
           payee: 'Opening Balance',
           source_type: 'OPENING_BALANCE',
+          currency: acctCurr,
           lines
         });
       }
     }
 
-    res.json({ ok: true, accountId: newAccId });
+    res.json({ ok: true, accountId: newAccId, currency: acctCurr });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -555,6 +557,8 @@ app.put('/api/accounts/:id', (req, res) => {
       throw new Error('Account code, name, and type are required.');
     }
 
+    const acctCurr = String(currency || existing.currency || 'NZD').toUpperCase().trim() || 'NZD';
+
     db.prepare(`
       UPDATE accounts
       SET code = ?, name = ?, type = ?, subtype = ?, currency = ?, description = ?, tax_category = ?
@@ -564,7 +568,7 @@ app.put('/api/accounts/:id', (req, res) => {
       String(name).trim(),
       type,
       subtype || type,
-      currency || 'USD',
+      acctCurr,
       description ?? '',
       tax_category ?? '',
       accountId
@@ -610,13 +614,14 @@ app.put('/api/accounts/:id', (req, res) => {
             memo: `Opening Balance for ${code} - ${name}`,
             payee: 'Opening Balance',
             source_type: 'OPENING_BALANCE',
+            currency: acctCurr,
             lines
           });
         }
       }
     }
 
-    res.json({ ok: true, accountId });
+    res.json({ ok: true, accountId, currency: acctCurr });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -637,6 +642,7 @@ app.post('/api/accounts/opening-balances-import', (req, res) => {
       const nameIdx = hdr.findIndex((h) => h.includes('name') || h.includes('account'));
       const typeIdx = hdr.findIndex((h) => h === 'type' || h.includes('account type') || h.includes('account_type'));
       const subIdx = hdr.findIndex((h) => h.includes('sub') || h.includes('category'));
+      const currIdx = hdr.findIndex((h) => h.includes('curr'));
       const balIdx = hdr.findIndex((h) => h.includes('bal') || h.includes('amount') || h.includes('opening'));
       const dateIdx = hdr.findIndex((h) => h.includes('date') || h.includes('as of') || h.includes('as_of'));
       parsedRows = parsed.slice(1).map((r) => ({
@@ -644,6 +650,7 @@ app.post('/api/accounts/opening-balances-import', (req, res) => {
         name: nameIdx >= 0 ? r[nameIdx] : (r[1] || ''),
         type: typeIdx >= 0 ? r[typeIdx] : 'ASSET',
         subtype: subIdx >= 0 ? r[subIdx] : '',
+        currency: currIdx >= 0 && r[currIdx] ? String(r[currIdx]).toUpperCase().trim() : 'NZD',
         opening_balance: balIdx >= 0 ? parseAmount(r[balIdx]) : parseAmount(r[2]),
         opening_date: dateIdx >= 0 && r[dateIdx] ? normalizeDate(r[dateIdx]) : fallbackDate
       }));
@@ -670,6 +677,7 @@ app.post('/api/accounts/opening-balances-import', (req, res) => {
       const openDate = normalizeDate(item.opening_date || fallbackDate) || fallbackDate;
       const accType = String(item.type || 'ASSET').toUpperCase().trim();
       const accSubtype = String(item.subtype || accType).toUpperCase().trim();
+      const itemCurr = String(item.currency || 'NZD').toUpperCase().trim() || 'NZD';
 
       let acc = db.prepare('SELECT * FROM accounts WHERE code = ?').get(code) ||
                 db.prepare('SELECT * FROM accounts WHERE LOWER(name) = LOWER(?)').get(name);
@@ -679,8 +687,8 @@ app.post('/api/accounts/opening-balances-import', (req, res) => {
         const finalName = name || `Account ${finalCode}`;
         const ins = db.prepare(`
           INSERT INTO accounts (code, name, type, subtype, currency, description, tax_category, is_system)
-          VALUES (?, ?, ?, ?, 'USD', ?, ?, 0)
-        `).run(finalCode, finalName, accType, accSubtype, item.description || '', item.tax_category || '');
+          VALUES (?, ?, ?, ?, ?, ?, ?, 0)
+        `).run(finalCode, finalName, accType, accSubtype, itemCurr, item.description || '', item.tax_category || '');
         acc = db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(ins.lastInsertRowid));
         createdAccountsCount++;
       }
@@ -722,6 +730,7 @@ app.post('/api/accounts/opening-balances-import', (req, res) => {
           memo: `Opening Balance for ${acc.code} - ${acc.name}`,
           payee: 'Opening Balance',
           source_type: 'OPENING_BALANCE',
+          currency: acc.currency || 'NZD',
           lines
         });
         updatedCount++;
@@ -1757,13 +1766,13 @@ function restoreFromBackupObject(data) {
       db.prepare(`
         INSERT INTO accounts (id, code, name, type, subtype, currency, description, tax_category, is_system, is_active)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(a.id, a.code, a.name, a.type, a.subtype, a.currency || 'USD', a.description || '', a.tax_category || '', a.is_system || 0, a.is_active ?? 1);
+      `).run(a.id, a.code, a.name, a.type, a.subtype, a.currency || 'NZD', a.description || '', a.tax_category || '', a.is_system || 0, a.is_active ?? 1);
     }
     for (const je of data.journal_entries) {
       db.prepare(`
         INSERT INTO journal_entries (id, entry_number, date, memo, payee, reference, source_type, currency, exchange_rate, is_tax_deductible, import_batch_id, import_hash)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(je.id, je.entry_number, je.date, je.memo || '', je.payee || '', je.reference || '', je.source_type || 'JOURNAL', je.currency || 'USD', je.exchange_rate || 1, je.is_tax_deductible || 0, je.import_batch_id || null, je.import_hash || null);
+      `).run(je.id, je.entry_number, je.date, je.memo || '', je.payee || '', je.reference || '', je.source_type || 'JOURNAL', je.currency || 'NZD', je.exchange_rate || 1, je.is_tax_deductible || 0, je.import_batch_id || null, je.import_hash || null);
     }
     if (Array.isArray(data.journal_lines)) {
       for (const jl of data.journal_lines) {
@@ -1796,7 +1805,7 @@ function restoreFromBackupObject(data) {
         db.prepare(`
           INSERT INTO invoices_bills (id, doc_type, doc_number, contact_name, contact_email, issue_date, due_date, status, currency, exchange_rate, total_amount, category_account_id, ar_ap_account_id, payment_account_id, paid_date, accrual_journal_entry_id, payment_journal_entry_id, line_items_json, notes)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(ib.id, ib.doc_type, ib.doc_number, ib.contact_name, ib.contact_email || '', ib.issue_date, ib.due_date, ib.status || 'OPEN', ib.currency || 'USD', ib.exchange_rate || 1, ib.total_amount || 0, ib.category_account_id, ib.ar_ap_account_id, ib.payment_account_id || null, ib.paid_date || null, ib.accrual_journal_entry_id || null, ib.payment_journal_entry_id || null, ib.line_items_json || '[]', ib.notes || '');
+        `).run(ib.id, ib.doc_type, ib.doc_number, ib.contact_name, ib.contact_email || '', ib.issue_date, ib.due_date, ib.status || 'OPEN', ib.currency || 'NZD', ib.exchange_rate || 1, ib.total_amount || 0, ib.category_account_id, ib.ar_ap_account_id, ib.payment_account_id || null, ib.paid_date || null, ib.accrual_journal_entry_id || null, ib.payment_journal_entry_id || null, ib.line_items_json || '[]', ib.notes || '');
       }
     }
     if (Array.isArray(data.recurring_transactions)) {
@@ -1804,7 +1813,7 @@ function restoreFromBackupObject(data) {
         db.prepare(`
           INSERT INTO recurring_transactions (id, name, tx_type, frequency, next_date, amount, currency, payment_account_id, category_account_id, payee, memo, is_tax_deductible, is_active, last_run_date)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(rt.id, rt.name, rt.tx_type, rt.frequency, rt.next_date, rt.amount, rt.currency || 'USD', rt.payment_account_id, rt.category_account_id, rt.payee || '', rt.memo || '', rt.is_tax_deductible || 0, rt.is_active ?? 1, rt.last_run_date || '');
+        `).run(rt.id, rt.name, rt.tx_type, rt.frequency, rt.next_date, rt.amount, rt.currency || 'NZD', rt.payment_account_id, rt.category_account_id, rt.payee || '', rt.memo || '', rt.is_tax_deductible || 0, rt.is_active ?? 1, rt.last_run_date || '');
       }
     }
     db.exec('COMMIT');

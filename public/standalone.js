@@ -187,18 +187,19 @@
       nextIds: { account: 1, entry: 1, line: 1, rule: 1, budget: 1, goal: 1, doc: 1, rec: 1, recon: 1, batch: 1 },
       settings: {
         organization_name: 'Personal Financial Ledger',
-        base_currency: 'USD',
+        base_currency: 'NZD',
         fiscal_year_start: '01-01',
-        tax_rate_estimate: '24'
+        tax_rate_estimate: '24',
+        nzd_home_migrated: '1'
       },
       currencies: [
-        { code: 'USD', name: 'US Dollar', symbol: '$', exchange_rate: 1.0 },
-        { code: 'NZD', name: 'New Zealand Dollar', symbol: 'NZ$', exchange_rate: 0.61 },
-        { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', exchange_rate: 0.66 },
-        { code: 'EUR', name: 'Euro', symbol: '€', exchange_rate: 1.09 },
-        { code: 'GBP', name: 'British Pound', symbol: '£', exchange_rate: 1.29 },
-        { code: 'CAD', name: 'Canadian Dollar', symbol: 'CA$', exchange_rate: 0.73 },
-        { code: 'JPY', name: 'Japanese Yen', symbol: '¥', exchange_rate: 0.0067 }
+        { code: 'NZD', name: 'New Zealand Dollar', symbol: 'NZ$', exchange_rate: 1.0 },
+        { code: 'USD', name: 'US Dollar', symbol: '$', exchange_rate: 1.64 },
+        { code: 'AUD', name: 'Australian Dollar', symbol: 'A$', exchange_rate: 1.08 },
+        { code: 'EUR', name: 'Euro', symbol: '€', exchange_rate: 1.78 },
+        { code: 'GBP', name: 'British Pound', symbol: '£', exchange_rate: 2.11 },
+        { code: 'CAD', name: 'Canadian Dollar', symbol: 'CA$', exchange_rate: 1.19 },
+        { code: 'JPY', name: 'Japanese Yen', symbol: '¥', exchange_rate: 0.011 }
       ],
       accounts: [],
       journal_entries: [],
@@ -214,7 +215,7 @@
 
     const addAcc = (code, name, type, subtype, description, tax_category = '', is_system = 0) => {
       const id = store.nextIds.account++;
-      const acc = { id, code, name, type, subtype, currency: 'USD', description, tax_category, is_system, is_active: 1 };
+      const acc = { id, code, name, type, subtype, currency: 'NZD', description, tax_category, is_system, is_active: 1 };
       store.accounts.push(acc);
       return acc;
     };
@@ -361,7 +362,7 @@
     store.invoices_bills.push({
       id: store.nextIds.doc++,
       doc_type: 'INVOICE', doc_number: 'INV-1002', contact_name: 'Horizon FinTech Ltd', contact_email: 'ap@horizonfintech.io',
-      issue_date: '2026-10-10', due_date: '2026-10-30', status: 'OPEN', currency: 'USD', exchange_rate: 1.0,
+      issue_date: '2026-10-10', due_date: '2026-10-30', status: 'OPEN', currency: 'NZD', exchange_rate: 1.0,
       total_amount: 3200, category_account_id: accFreelance.id, ar_ap_account_id: accAR.id,
       accrual_journal_entry_id: invEntryId, payment_journal_entry_id: null, paid_date: null
     });
@@ -381,15 +382,15 @@
     store.invoices_bills.push({
       id: store.nextIds.doc++,
       doc_type: 'BILL', doc_number: 'BILL-204', contact_name: 'Summit Tax Advisors LLP', contact_email: 'billing@summittaxcpa.com',
-      issue_date: '2026-10-14', due_date: '2026-10-28', status: 'OPEN', currency: 'USD', exchange_rate: 1.0,
+      issue_date: '2026-10-14', due_date: '2026-10-28', status: 'OPEN', currency: 'NZD', exchange_rate: 1.0,
       total_amount: 450, category_account_id: accOffice.id, ar_ap_account_id: accAP.id,
       accrual_journal_entry_id: billEntryId, payment_journal_entry_id: null, paid_date: null
     });
 
     store.recurring_transactions.push(
-      { id: store.nextIds.rec++, name: 'Bi-Weekly TechCorp Paycheck', tx_type: 'INCOME', frequency: 'BIWEEKLY', next_date: '2026-10-29', amount: 4650, currency: 'USD', payment_account_id: accChecking.id, category_account_id: accSalary.id, payee: 'TechCorp Direct Deposit', memo: 'Bi-weekly Payroll Direct Deposit', is_tax_deductible: 0 },
-      { id: store.nextIds.rec++, name: 'Monthly Apartment Rent', tx_type: 'EXPENSE', frequency: 'MONTHLY', next_date: '2026-11-01', amount: 2250, currency: 'USD', payment_account_id: accChecking.id, category_account_id: accHousing.id, payee: 'Skyline Property Management', memo: 'Monthly Rent & Residence Fee', is_tax_deductible: 0 },
-      { id: store.nextIds.rec++, name: 'Monthly Emergency Savings Transfer', tx_type: 'TRANSFER', frequency: 'MONTHLY', next_date: '2026-10-25', amount: 1500, currency: 'USD', payment_account_id: accChecking.id, category_account_id: accSavings.id, payee: 'Internal Transfer', memo: 'Monthly High-Yield Savings Transfer', is_tax_deductible: 0 }
+      { id: store.nextIds.rec++, name: 'Bi-Weekly TechCorp Paycheck', tx_type: 'INCOME', frequency: 'BIWEEKLY', next_date: '2026-10-29', amount: 4650, currency: 'NZD', payment_account_id: accChecking.id, category_account_id: accSalary.id, payee: 'TechCorp Direct Deposit', memo: 'Bi-weekly Payroll Direct Deposit', is_tax_deductible: 0 },
+      { id: store.nextIds.rec++, name: 'Monthly Apartment Rent', tx_type: 'EXPENSE', frequency: 'MONTHLY', next_date: '2026-11-01', amount: 2250, currency: 'NZD', payment_account_id: accChecking.id, category_account_id: accHousing.id, payee: 'Skyline Property Management', memo: 'Monthly Rent & Residence Fee', is_tax_deductible: 0 },
+      { id: store.nextIds.rec++, name: 'Monthly Emergency Savings Transfer', tx_type: 'TRANSFER', frequency: 'MONTHLY', next_date: '2026-10-25', amount: 1500, currency: 'NZD', payment_account_id: accChecking.id, category_account_id: accSavings.id, payee: 'Internal Transfer', memo: 'Monthly High-Yield Savings Transfer', is_tax_deductible: 0 }
     );
 
     return store;
@@ -398,7 +399,32 @@
   function loadStore() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.settings && !parsed.settings.nzd_home_migrated) {
+          parsed.settings.base_currency = 'NZD';
+          parsed.settings.nzd_home_migrated = '1';
+          if (Array.isArray(parsed.currencies)) {
+            const rateMap = { NZD: 1.0, USD: 1.64, AUD: 1.08, EUR: 1.78, GBP: 2.11, CAD: 1.19, JPY: 0.011 };
+            parsed.currencies.forEach((c) => {
+              if (rateMap[c.code] !== undefined) c.exchange_rate = rateMap[c.code];
+            });
+            parsed.currencies.sort((a, b) => (a.code === 'NZD' ? -1 : b.code === 'NZD' ? 1 : 0));
+          }
+          if (Array.isArray(parsed.accounts)) {
+            parsed.accounts.forEach((a) => {
+              if (!a.currency || a.currency === 'USD') a.currency = 'NZD';
+            });
+          }
+          if (Array.isArray(parsed.journal_entries)) {
+            parsed.journal_entries.forEach((je) => {
+              if (!je.currency || je.currency === 'USD') je.currency = 'NZD';
+            });
+          }
+          saveStore(parsed);
+        }
+        return parsed;
+      }
     } catch (_) {}
     const initial = createInitialStore();
     saveStore(initial);
@@ -475,7 +501,7 @@
       payee: payload.payee || '',
       reference: payload.reference || '',
       source_type: payload.source_type || 'JOURNAL',
-      currency: payload.currency || 'USD',
+      currency: payload.currency || store.settings?.base_currency || 'NZD',
       exchange_rate: Number(payload.exchange_rate) || 1.0,
       is_tax_deductible: payload.is_tax_deductible ? 1 : 0,
       import_batch_id: payload.import_batch_id || null,
@@ -525,7 +551,7 @@
       payee: payload.payee,
       reference: payload.reference,
       source_type: payload.source_type || payload.tx_type,
-      currency: payload.currency || 'USD',
+      currency: payload.currency || store.settings?.base_currency || 'NZD',
       exchange_rate: rate,
       is_tax_deductible: payload.is_tax_deductible,
       import_batch_id: payload.import_batch_id,
@@ -903,6 +929,7 @@
       if (store.accounts.some((a) => a.code === codeTrim)) {
         throw new Error(`Account code ${codeTrim} already exists.`);
       }
+      const acctCurr = String(body.currency || store.settings?.base_currency || 'NZD').toUpperCase().trim() || 'NZD';
       const id = store.nextIds.account++;
       store.accounts.push({
         id,
@@ -910,7 +937,7 @@
         name: nameTrim,
         type: body.type,
         subtype: body.subtype || body.type,
-        currency: 'USD',
+        currency: acctCurr,
         description: body.description || '',
         tax_category: body.tax_category || '',
         is_system: 0,
@@ -929,6 +956,7 @@
             memo: `Opening Balance for ${nameTrim}`,
             payee: 'Opening Balance',
             source_type: 'OPENING_BALANCE',
+            currency: acctCurr,
             lines: debitTarget
               ? [{ account_id: id, debit: amt, credit: 0 }, { account_id: openEq.id, debit: 0, credit: amt }]
               : [{ account_id: openEq.id, debit: amt, credit: 0 }, { account_id: id, debit: 0, credit: amt }]
@@ -936,7 +964,7 @@
         }
       }
       saveStore(store);
-      return { ok: true, accountId: id };
+      return { ok: true, accountId: id, currency: acctCurr };
     }
 
     // EDIT ACCOUNT (both user-created and existing system accounts)
@@ -954,6 +982,7 @@
       acc.name = nameTrim;
       acc.type = body.type || acc.type;
       acc.subtype = body.subtype || acc.subtype;
+      acc.currency = String(body.currency || acc.currency || store.settings?.base_currency || 'NZD').toUpperCase().trim() || 'NZD';
       acc.tax_category = body.tax_category ?? acc.tax_category;
       acc.description = body.description ?? acc.description;
 
@@ -1022,6 +1051,7 @@
                 memo: `Opening Balance (${acc.code} - ${acc.name})`,
                 payee: 'Opening Balance',
                 source_type: 'OPENING_BALANCE',
+                currency: acc.currency || 'NZD',
                 lines: debitTarget
                   ? [{ account_id: accId, debit: absDelta, credit: 0, reconciled_status: 'RECONCILED' }, { account_id: openEq.id, debit: 0, credit: absDelta, reconciled_status: 'RECONCILED' }]
                   : [{ account_id: openEq.id, debit: absDelta, credit: 0, reconciled_status: 'RECONCILED' }, { account_id: accId, debit: 0, credit: absDelta, reconciled_status: 'RECONCILED' }]
@@ -1031,7 +1061,7 @@
         }
       }
       saveStore(store);
-      return { ok: true, accountId: accId };
+      return { ok: true, accountId: accId, currency: acc.currency };
     }
 
     // BULK / CSV OPENING BALANCES IMPORT
@@ -1046,6 +1076,7 @@
         const nameIdx = hdr.findIndex((h) => h.includes('name') || h.includes('account'));
         const typeIdx = hdr.findIndex((h) => h === 'type' || h.includes('account type'));
         const subIdx = hdr.findIndex((h) => h.includes('sub'));
+        const currIdx = hdr.findIndex((h) => h.includes('curr'));
         const balIdx = hdr.findIndex((h) => h.includes('bal') || h.includes('amount') || h.includes('opening'));
         const dateIdx = hdr.findIndex((h) => h.includes('date') || h.includes('as of'));
         items = parsed.slice(1).map((r) => ({
@@ -1053,6 +1084,7 @@
           name: nameIdx >= 0 ? r[nameIdx] : (r[1] || ''),
           type: typeIdx >= 0 ? r[typeIdx] : '',
           subtype: subIdx >= 0 ? r[subIdx] : '',
+          currency: currIdx >= 0 && r[currIdx] ? String(r[currIdx]).toUpperCase().trim() : (store.settings?.base_currency || 'NZD'),
           opening_balance: balIdx >= 0 ? parseAmount(r[balIdx]) : parseAmount(r[2]),
           opening_date: dateIdx >= 0 && r[dateIdx] ? normalizeDate(r[dateIdx]) : normalizeDate(defaultDate)
         }));
@@ -1079,7 +1111,7 @@
             name: nameStr,
             type: validType,
             subtype: String(item.subtype || validType).toUpperCase().trim(),
-            currency: 'USD',
+            currency: String(item.currency || store.settings?.base_currency || 'NZD').toUpperCase().trim() || 'NZD',
             description: 'Created via Opening Balance Import',
             tax_category: '',
             is_system: 0,
@@ -1120,6 +1152,7 @@
             payee: 'Opening Balance',
             reference: 'OB-IMPORT',
             source_type: 'OPENING_BALANCE',
+            currency: acc.currency || 'NZD',
             lines: debitTarget
               ? [{ account_id: acc.id, debit: absDelta, credit: 0, reconciled_status: 'RECONCILED' }, { account_id: openEq.id, debit: 0, credit: absDelta, reconciled_status: 'RECONCILED' }]
               : [{ account_id: openEq.id, debit: absDelta, credit: 0, reconciled_status: 'RECONCILED' }, { account_id: acc.id, debit: 0, credit: absDelta, reconciled_status: 'RECONCILED' }]
@@ -1266,7 +1299,7 @@
           name: formattedName,
           type: targetType,
           subtype: targetSubtype,
-          currency: 'USD',
+          currency: store.settings?.base_currency || 'NZD',
           description: `Auto-created from CSV Import category "${formattedName}"`,
           tax_category: isInflow ? 'Income' : 'Expense',
           is_system: 0

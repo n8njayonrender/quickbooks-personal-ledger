@@ -38,7 +38,7 @@ function initSchema() {
       name TEXT NOT NULL,
       type TEXT NOT NULL CHECK(type IN ('ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE')),
       subtype TEXT NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'NZD',
       description TEXT DEFAULT '',
       tax_category TEXT DEFAULT '',
       is_system INTEGER NOT NULL DEFAULT 0,
@@ -54,7 +54,7 @@ function initSchema() {
       payee TEXT DEFAULT '',
       reference TEXT DEFAULT '',
       source_type TEXT NOT NULL DEFAULT 'JOURNAL',
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'NZD',
       exchange_rate REAL NOT NULL DEFAULT 1.0,
       is_tax_deductible INTEGER NOT NULL DEFAULT 0,
       import_batch_id INTEGER,
@@ -125,7 +125,7 @@ function initSchema() {
       issue_date TEXT NOT NULL,
       due_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'OPEN' CHECK(status IN ('DRAFT', 'OPEN', 'PAID', 'VOID')),
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'NZD',
       exchange_rate REAL NOT NULL DEFAULT 1.0,
       total_amount REAL NOT NULL DEFAULT 0.0,
       category_account_id INTEGER NOT NULL,
@@ -146,7 +146,7 @@ function initSchema() {
       frequency TEXT NOT NULL CHECK(frequency IN ('WEEKLY', 'BIWEEKLY', 'MONTHLY', 'QUARTERLY', 'YEARLY')),
       next_date TEXT NOT NULL,
       amount REAL NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'USD',
+      currency TEXT NOT NULL DEFAULT 'NZD',
       payment_account_id INTEGER NOT NULL,
       category_account_id INTEGER NOT NULL,
       payee TEXT DEFAULT '',
@@ -217,7 +217,7 @@ function createJournalEntry({
   payee = '',
   reference = '',
   source_type = 'JOURNAL',
-  currency = 'USD',
+  currency = 'NZD',
   exchange_rate = 1.0,
   is_tax_deductible = 0,
   import_batch_id = null,
@@ -318,7 +318,7 @@ function createSimpleTransaction({
   tx_type, // 'EXPENSE', 'INCOME', 'TRANSFER'
   date,
   amount, // positive number in transaction currency
-  currency = 'USD',
+  currency = 'NZD',
   exchange_rate = 1.0,
   payment_account_id, // e.g., Checking (Asset) or Credit Card (Liability)
   category_account_id, // Expense, Income, or Destination Transfer Account
@@ -436,28 +436,47 @@ function seedCoreAccountsAndSettings() {
   if (settingsCount === 0) {
     const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
     insertSetting.run('organization_name', 'Personal Financial Ledger');
-    insertSetting.run('base_currency', 'USD');
+    insertSetting.run('base_currency', 'NZD');
     insertSetting.run('fiscal_year_start', '01-01');
     insertSetting.run('tax_rate_estimate', '24');
+    insertSetting.run('nzd_home_migrated', '1');
   }
 
   const currCount = db.prepare('SELECT COUNT(*) as c FROM currencies').get().c;
   if (currCount === 0) {
     const insCurr = db.prepare('INSERT OR IGNORE INTO currencies (code, name, symbol, exchange_rate) VALUES (?, ?, ?, ?)');
-    insCurr.run('USD', 'US Dollar', '$', 1.0);
-    insCurr.run('NZD', 'New Zealand Dollar', 'NZ$', 0.61);
-    insCurr.run('AUD', 'Australian Dollar', 'A$', 0.66);
-    insCurr.run('EUR', 'Euro', '€', 1.09);
-    insCurr.run('GBP', 'British Pound', '£', 1.29);
-    insCurr.run('CAD', 'Canadian Dollar', 'CA$', 0.73);
-    insCurr.run('JPY', 'Japanese Yen', '¥', 0.0067);
+    insCurr.run('NZD', 'New Zealand Dollar', 'NZ$', 1.0);
+    insCurr.run('USD', 'US Dollar', '$', 1.64);
+    insCurr.run('AUD', 'Australian Dollar', 'A$', 1.08);
+    insCurr.run('EUR', 'Euro', '€', 1.78);
+    insCurr.run('GBP', 'British Pound', '£', 2.11);
+    insCurr.run('CAD', 'Canadian Dollar', 'CA$', 1.19);
+    insCurr.run('JPY', 'Japanese Yen', '¥', 0.011);
+  }
+
+  // One-time migration to switch existing databases from default USD to NZD Home Currency
+  const migrated = db.prepare("SELECT value FROM settings WHERE key = 'nzd_home_migrated'").get();
+  if (!migrated) {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('base_currency', 'NZD')").run();
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('nzd_home_migrated', '1')").run();
+    db.prepare("UPDATE currencies SET exchange_rate = 1.0 WHERE code = 'NZD'").run();
+    db.prepare("UPDATE currencies SET exchange_rate = 1.64 WHERE code = 'USD' AND exchange_rate = 1.0").run();
+    db.prepare("UPDATE currencies SET exchange_rate = 1.08 WHERE code = 'AUD' AND exchange_rate = 0.66").run();
+    db.prepare("UPDATE currencies SET exchange_rate = 1.78 WHERE code = 'EUR' AND exchange_rate = 1.09").run();
+    db.prepare("UPDATE currencies SET exchange_rate = 2.11 WHERE code = 'GBP' AND exchange_rate = 1.29").run();
+    db.prepare("UPDATE currencies SET exchange_rate = 1.19 WHERE code = 'CAD' AND exchange_rate = 0.73").run();
+    db.prepare("UPDATE currencies SET exchange_rate = 0.011 WHERE code = 'JPY' AND exchange_rate = 0.0067").run();
+    db.prepare("UPDATE accounts SET currency = 'NZD' WHERE currency = 'USD'").run();
+    db.prepare("UPDATE journal_entries SET currency = 'NZD' WHERE currency = 'USD'").run();
+    db.prepare("UPDATE invoices_bills SET currency = 'NZD' WHERE currency = 'USD'").run();
+    db.prepare("UPDATE recurring_transactions SET currency = 'NZD' WHERE currency = 'USD'").run();
   }
 
   const accCount = db.prepare('SELECT COUNT(*) as c FROM accounts').get().c;
   if (accCount === 0) {
     const insAcc = db.prepare(`
       INSERT INTO accounts (code, name, type, subtype, currency, description, tax_category, is_system)
-      VALUES (?, ?, ?, ?, 'USD', ?, ?, ?)
+      VALUES (?, ?, ?, ?, 'NZD', ?, ?, ?)
     `);
 
     // ASSETS
@@ -656,7 +675,7 @@ function seedDemoData() {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     'INVOICE', 'INV-1002', 'Horizon FinTech Ltd', 'ap@horizonfintech.io', '2026-10-10', '2026-10-30',
-    'OPEN', 'USD', 1.0, 3200.00, accFreelance.id, accAR.id,
+    'OPEN', 'NZD', 1.0, 3200.00, accFreelance.id, accAR.id,
     invEntryId,
     JSON.stringify([
       { description: 'Financial Ledger System Architecture Review (20 hrs @ $160/hr)', quantity: 20, rate: 160, amount: 3200 }
@@ -685,7 +704,7 @@ function seedDemoData() {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     'BILL', 'BILL-204', 'Summit Tax Advisors LLP', 'billing@summittaxcpa.com', '2026-10-14', '2026-10-28',
-    'OPEN', 'USD', 1.0, 450.00, accOffice.id, accAP.id,
+    'OPEN', 'NZD', 1.0, 450.00, accOffice.id, accAP.id,
     billEntryId,
     JSON.stringify([
       { description: 'Annual Personal & Freelance Tax Optimization Session', quantity: 1, rate: 450, amount: 450 }
@@ -698,7 +717,7 @@ function seedDemoData() {
     INSERT INTO recurring_transactions (
       name, tx_type, frequency, next_date, amount, currency,
       payment_account_id, category_account_id, payee, memo, is_tax_deductible, last_run_date
-    ) VALUES (?, ?, ?, ?, ?, 'USD', ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, 'NZD', ?, ?, ?, ?, ?, ?)
   `);
   insRec.run('Bi-Weekly TechCorp Paycheck', 'INCOME', 'BIWEEKLY', '2026-10-29', 4650.00, accChecking.id, accSalary.id, 'TechCorp Direct Deposit', 'Bi-weekly Payroll Direct Deposit', 0, '2026-10-15');
   insRec.run('Monthly Apartment Rent', 'EXPENSE', 'MONTHLY', '2026-11-01', 2250.00, accChecking.id, accHousing.id, 'Skyline Property Management', 'Monthly Rent & Residence Fee', 0, '2026-10-02');
