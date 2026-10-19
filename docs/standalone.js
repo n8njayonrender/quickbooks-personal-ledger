@@ -1046,6 +1046,9 @@
       store.invoices_bills = [];
       store.reconciliations = [];
       store.import_batches = [];
+      store.recurring_transactions = [];
+      store.savings_goals = [];
+      store.budgets = [];
       saveStore(store);
       return { ok: true };
     }

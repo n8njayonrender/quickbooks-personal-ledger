@@ -1405,7 +1405,8 @@ app.post('/api/admin/clear-transactions', (req, res) => {
     db.exec('PRAGMA foreign_keys = OFF;');
     const tables = [
       'journal_lines', 'journal_entries', 'invoices_bills',
-      'reconciliations', 'import_batches'
+      'reconciliations', 'import_batches', 'recurring_transactions',
+      'savings_goals', 'budgets'
     ];
     for (const t of tables) db.exec(`DELETE FROM ${t};`);
     db.exec('PRAGMA foreign_keys = ON;');
