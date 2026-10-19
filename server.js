@@ -899,7 +899,7 @@ app.post('/api/import/csv-commit', (req, res) => {
     const batchId = Number(batchRes.lastInsertRowid);
 
     const uncatIds = new Set(
-      db.prepare(`SELECT id FROM accounts WHERE code IN ('5990', '4990')`).all().map((a) => Number(a.id))
+      db.prepare(`SELECT id FROM accounts WHERE code IN ('5990', '5999', '4990', '4090')`).all().map((a) => Number(a.id))
     );
 
     for (const r of txRows) {
@@ -935,7 +935,7 @@ app.post('/api/import/csv-commit', (req, res) => {
       importedCount++;
 
       // Auto-learn categorization rule from payee if requested and not already covered
-      if (autoLearnRules && catAccId && !uncatIds.has(catAccId) && !r.matchedRule) {
+      if (autoLearnRules && catAccId && !uncatIds.has(catAccId)) {
         const keyword = String(r.payee || '').trim();
         if (keyword.length >= 3 && keyword.length <= 45 && !/^\d+$/.test(keyword)) {
           const existingRule = db.prepare(`
@@ -1533,14 +1533,14 @@ function escapeCSV(val) {
 
 app.get('/api/export/sample-bank-csv', (req, res) => {
   const sampleRows = [
-    ['Date', 'Description', 'Payee', 'Reference', 'Withdrawal', 'Deposit', 'Amount'],
-    ['2026-10-19', 'WHOLE FOODS MARKET #1042 ORGANIC GROCERIES', 'Whole Foods Market', 'POS-9921', '142.85', '', '-142.85'],
-    ['2026-10-19', 'UBER *TRIP AIRPORT SHUTTLE', 'Uber', 'POS-9922', '48.50', '', '-48.50'],
-    ['2026-10-20', 'STARBUCKS STORE #4412 ESPRESSO', 'Starbucks', 'POS-9925', '14.75', '', '-14.75'],
-    ['2026-10-21', 'AWS CLOUD SERVICES MONTHLY HOSTING', 'Amazon Web Services', 'INV-AWS10', '64.20', '', '-64.20'],
-    ['2026-10-22', 'SHELL SERVICE STATION FUEL', 'Shell Station', 'POS-9930', '52.10', '', '-52.10'],
-    ['2026-10-24', 'PAYROLL DIRECT DEPOSIT TECHCORP INC', 'TechCorp Direct Deposit', 'DD-1024', '', '4650.00', '4650.00'],
-    ['2026-10-25', 'TRADER JOES #210 GROCERY', 'Trader Joes', 'POS-9941', '118.40', '', '-118.40']
+    ['Date', 'Description', 'Payee', 'Category', 'Reference', 'Withdrawal', 'Deposit', 'Amount'],
+    ['2026-10-19', 'WHOLE FOODS MARKET #1042 ORGANIC GROCERIES', 'Whole Foods Market', 'Groceries & Supermarkets', 'POS-9921', '142.85', '', '-142.85'],
+    ['2026-10-19', 'UBER *TRIP AIRPORT SHUTTLE', 'Uber', 'Auto & Transport', 'POS-9922', '48.50', '', '-48.50'],
+    ['2026-10-20', 'STARBUCKS STORE #4412 ESPRESSO', 'Starbucks', 'Restaurants & Dining Out', 'POS-9925', '14.75', '', '-14.75'],
+    ['2026-10-21', 'AWS CLOUD SERVICES MONTHLY HOSTING', 'Amazon Web Services', 'Software, Subscriptions & Tech', 'INV-AWS10', '64.20', '', '-64.20'],
+    ['2026-10-22', 'SHELL SERVICE STATION FUEL', 'Shell Station', 'Auto & Transport', 'POS-9930', '52.10', '', '-52.10'],
+    ['2026-10-24', 'PAYROLL DIRECT DEPOSIT TECHCORP INC', 'TechCorp Direct Deposit', 'Salary & Wages (Net Paycheck)', 'DD-1024', '', '4650.00', '4650.00'],
+    ['2026-10-25', 'TRADER JOES #210 GROCERY', 'Trader Joes', 'Groceries & Supermarkets', 'POS-9941', '118.40', '', '-118.40']
   ];
   const csv = sampleRows.map((r) => r.map(escapeCSV).join(',')).join('\r\n');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');

@@ -323,47 +323,65 @@
                 </div>
               </div>
 
-              <!-- Step 2: Interactive Column Mapper & Preview (Hidden until CSV loaded) -->
+              <!-- Step 2: Interactive Column Mapper & Review Before Posting (Hidden until CSV loaded) -->
               <div id="csvPreviewSection" class="hidden space-y-4 pt-2 border-t border-slate-200">
                 <div class="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
-                  <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-slate-800 uppercase tracking-wider">Column Mapping Auto-Detected (Supports Date, Description, Amount, Dr/Cr, Category &amp; Account)</span>
+                  <div class="flex flex-wrap items-center justify-between gap-2">
+                    <span class="text-xs font-bold text-slate-800 uppercase tracking-wider">Step 2A: Column Mapping Auto-Detected (Date, Description, Payee, Category, Amount &amp; Account)</span>
                     <button onclick="repreviewWithCustomMapping()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-semibold">Re-Map Columns</button>
                   </div>
                   <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2.5 text-xs" id="csvColumnMapGrid"></div>
                 </div>
 
-                <!-- Summary Bar, Auto-Learn Checkbox & Commit Button -->
-                <div class="flex flex-wrap items-center justify-between gap-3 bg-emerald-50/80 border border-emerald-200 rounded-lg p-3.5">
-                  <div class="space-y-1">
-                    <div class="flex flex-wrap items-center gap-4 text-xs">
-                      <div><span class="text-slate-500">Rows Detected:</span> <strong id="csvStatTotal" class="font-mono text-slate-900">0</strong></div>
-                      <div><span class="text-slate-500">Auto-Categorized:</span> <strong id="csvStatMatched" class="font-mono text-emerald-700">0</strong></div>
-                      <div><span class="text-slate-500">Duplicates Flagged:</span> <strong id="csvStatDuplicates" class="font-mono text-amber-700">0</strong></div>
+                <!-- Summary Bar, Bulk Edit & Commit Button -->
+                <div class="bg-emerald-50/80 border border-emerald-200 rounded-lg p-3.5 space-y-3">
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div class="space-y-1">
+                      <div class="text-xs font-bold text-emerald-950 uppercase tracking-wider">Step 2B: Review &amp; Edit Transactions Before Posting</div>
+                      <div class="flex flex-wrap items-center gap-4 text-xs">
+                        <div><span class="text-slate-500">Rows Detected:</span> <strong id="csvStatTotal" class="font-mono text-slate-900">0</strong></div>
+                        <div><span class="text-slate-500">Categories Auto-Detected:</span> <strong id="csvStatMatched" class="font-mono text-emerald-700">0</strong></div>
+                        <div><span class="text-slate-500">Duplicates Flagged:</span> <strong id="csvStatDuplicates" class="font-mono text-amber-700">0</strong></div>
+                      </div>
+                      <label class="flex items-center gap-2 text-[11px] text-slate-700 font-medium cursor-pointer">
+                        <input type="checkbox" id="csvAutoLearnRules" checked class="rounded border-slate-300 text-emerald-600" />
+                        <span>Auto-save categorization rules from categorized Payees so future uploads categorize automatically</span>
+                      </label>
                     </div>
-                    <label class="flex items-center gap-2 text-[11px] text-slate-700 font-medium cursor-pointer">
-                      <input type="checkbox" id="csvAutoLearnRules" checked class="rounded border-slate-300 text-emerald-600" />
-                      <span>Auto-save categorization rules from categorized Payees so future uploads categorize automatically</span>
-                    </label>
+                    <button onclick="commitCSVImport()" class="px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition">
+                      ✓ Post &amp; Commit Selected to General Ledger
+                    </button>
                   </div>
-                  <button onclick="commitCSVImport()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition">
-                    Commit Selected to General Ledger
-                  </button>
+
+                  <!-- Bulk Category / Quick New Category Bar -->
+                  <div class="pt-2.5 border-t border-emerald-200/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <div class="flex flex-wrap items-center gap-2">
+                      <span class="text-[11px] font-semibold text-emerald-900">Bulk Change Category for Checked Rows:</span>
+                      <select id="csvBulkCategorySelect" class="px-2.5 py-1 rounded border border-emerald-300 bg-white text-xs"></select>
+                      <button type="button" onclick="applyBulkCategoryToCSVPreview()" class="px-2.5 py-1 rounded bg-emerald-700 hover:bg-emerald-800 text-white font-semibold text-[11px] transition">
+                        Apply to Checked
+                      </button>
+                    </div>
+                    <button type="button" onclick="openAccountModal()" class="px-2.5 py-1 rounded bg-white hover:bg-slate-100 text-slate-800 border border-slate-300 font-semibold text-[11px] transition">
+                      + Add New Category Account
+                    </button>
+                  </div>
                 </div>
 
-                <!-- Preview Table -->
-                <div class="overflow-x-auto max-h-96 border border-slate-200 rounded-lg">
+                <!-- Editable Review Table -->
+                <div class="overflow-x-auto max-h-[460px] border border-slate-200 rounded-lg shadow-2xs">
                   <table class="w-full text-left border-collapse text-xs">
-                    <thead class="bg-slate-100 sticky top-0 border-b border-slate-200 text-slate-600 text-[11px] uppercase">
+                    <thead class="bg-slate-100 sticky top-0 z-10 border-b border-slate-200 text-slate-600 text-[11px] uppercase">
                       <tr>
                         <th class="py-2.5 px-2.5"><input type="checkbox" id="csvSelectAll" checked onchange="toggleAllCSVPreviewRows(this.checked)" /></th>
                         <th class="py-2.5 px-2">Date</th>
-                        <th class="py-2.5 px-2">Description</th>
+                        <th class="py-2.5 px-2">Description / Memo</th>
                         <th class="py-2.5 px-2">Payee</th>
-                        <th class="py-2.5 px-2">Category / Offset Account</th>
-                        <th class="py-2.5 px-2">Rule / Source</th>
+                        <th class="py-2.5 px-2">Type</th>
+                        <th class="py-2.5 px-2">Category / Offset Account (Detected from CSV)</th>
+                        <th class="py-2.5 px-2">Bank / Payment Account</th>
                         <th class="py-2.5 px-2 text-center">Tax Ded.</th>
-                        <th class="py-2.5 px-2 text-right">Amount</th>
+                        <th class="py-2.5 px-2 text-right">Amount ($)</th>
                       </tr>
                     </thead>
                     <tbody id="csvPreviewTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
@@ -1246,7 +1264,7 @@
   <!-- Toast Notification -->
   <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2"></div>
 
-  <script src="./standalone.js?v=20261019_3"></script>
-  <script src="./app.js?v=20261019_3"></script>
+  <script src="./standalone.js?v=20261019_4"></script>
+  <script src="./app.js?v=20261019_4"></script>
 </body>
 </html>

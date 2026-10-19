@@ -110,7 +110,25 @@
     return isNegative ? -Math.abs(val) : val;
   }
 
-  function autoDetectColumns(headers) {
+  const CATEGORY_SYNONYM_PATTERNS = [
+    { keywords: ['grocery', 'groceries', 'supermarket', 'supermarkets', 'produce'], matchTerms: ['grocer'] },
+    { keywords: ['restaurant', 'restaurants', 'dining', 'cafe', 'coffee', 'takeout', 'food & drink', 'food and drink', 'eating out', 'fast food', 'meals', 'lunch', 'dinner'], matchTerms: ['dining', 'restaurant', 'coffee'] },
+    { keywords: ['rent', 'mortgage', 'housing', 'hoa', 'apartment', 'lease'], matchTerms: ['housing', 'rent', 'mortgage'] },
+    { keywords: ['utility', 'utilities', 'electric', 'electricity', 'water', 'power', 'internet', 'wifi', 'phone', 'mobile', 'telecom', 'trash', 'sewer', 'cable'], matchTerms: ['utilit', 'internet', 'mobile'] },
+    { keywords: ['auto', 'car', 'fuel', 'gas', 'petrol', 'parking', 'toll', 'uber', 'lyft', 'transit', 'transport', 'transportation', 'vehicle', 'commute'], matchTerms: ['transportation', 'fuel', 'transit', 'auto, fuel'] },
+    { keywords: ['health', 'healthcare', 'medical', 'doctor', 'dental', 'dentist', 'pharmacy', 'vision', 'hospital', 'clinic'], matchTerms: ['healthcare', 'medical', 'pharmacy'] },
+    { keywords: ['insurance', 'premium', 'premiums', 'policy'], matchTerms: ['insurance'] },
+    { keywords: ['software', 'subscription', 'subscriptions', 'saas', 'cloud', 'hosting', 'streaming', 'tech', 'technology', 'domain'], matchTerms: ['software', 'subscription', 'cloud'] },
+    { keywords: ['travel', 'flight', 'flights', 'airline', 'hotel', 'airbnb', 'lodging', 'vacation', 'holiday'], matchTerms: ['travel', 'flight', 'lodging'] },
+    { keywords: ['entertainment', 'movies', 'fitness', 'gym', 'hobbies', 'recreation', 'concert'], matchTerms: ['entertainment', 'fitness'] },
+    { keywords: ['office', 'supplies', 'equipment', 'contractor', 'professional', 'legal', 'accounting', 'postage', 'shipping', 'marketing', 'advertising'], matchTerms: ['home office', 'office', 'business'] },
+    { keywords: ['tax', 'taxes', 'irs', 'estimated tax', 'state tax', 'federal tax'], matchTerms: ['taxes paid', 'income taxes', '5200'] },
+    { keywords: ['salary', 'wages', 'paycheck', 'payroll', 'direct deposit', 'employment', 'bonus', 'stipend'], matchTerms: ['salary', 'payroll', 'wages', '4010'] },
+    { keywords: ['freelance', 'consulting', 'client', 'side hustle', 'business income', 'revenue', 'sales', 'commission', 'contract'], matchTerms: ['freelance', 'consulting', '4020'] },
+    { keywords: ['dividend', 'dividends', 'interest', 'investment income', 'capital gain', 'yield', 'distribution'], matchTerms: ['dividend', 'interest', '4030'] }
+  ];
+
+  function autoDetectColumns(headers, dataRows = []) {
     const mapping = {
       dateCol: -1, descriptionCol: -1, payeeCol: -1,
       amountCol: -1, debitCol: -1, creditCol: -1,
@@ -119,19 +137,48 @@
     headers.forEach((h, idx) => {
       const lower = String(h || '').toLowerCase().trim();
       if (mapping.dateCol === -1 && (lower.includes('date') || lower === 'posted' || lower === 'timestamp')) mapping.dateCol = idx;
-      else if (mapping.descriptionCol === -1 && (lower.includes('desc') || lower.includes('memo') || lower.includes('narrative') || lower.includes('details') || lower.includes('particulars'))) mapping.descriptionCol = idx;
-      else if (mapping.payeeCol === -1 && (lower.includes('payee') || lower.includes('merchant') || lower.includes('vendor') || lower.includes('name'))) mapping.payeeCol = idx;
-      else if (mapping.amountCol === -1 && (lower === 'amount' || lower.includes('amount') || lower === 'value' || lower === 'net')) mapping.amountCol = idx;
-      else if (mapping.debitCol === -1 && (lower.includes('debit') || lower.includes('withdrawal') || lower.includes('outflow') || lower.includes('money out'))) mapping.debitCol = idx;
-      else if (mapping.creditCol === -1 && (lower.includes('credit') || lower.includes('deposit') || lower.includes('inflow') || lower.includes('money in'))) mapping.creditCol = idx;
+      else if (mapping.categoryCol === -1 && (
+        lower.includes('cat') || lower.includes('offset') || lower.includes('class') ||
+        lower.includes('gl') || lower.includes('ledger') || lower.includes('coa') ||
+        lower.includes('chart') || lower.includes('bucket') || lower.includes('group') ||
+        lower.includes('head') || lower.includes('dept') || lower.includes('department') ||
+        lower === 'expense' || lower === 'income' || lower.includes('account name') || lower.includes('account code')
+      )) mapping.categoryCol = idx;
+      else if (mapping.descriptionCol === -1 && (lower.includes('desc') || lower.includes('memo') || lower.includes('narrative') || lower.includes('details') || lower.includes('particulars') || lower === 'note' || lower === 'notes')) mapping.descriptionCol = idx;
+      else if (mapping.payeeCol === -1 && (lower.includes('payee') || lower.includes('merchant') || lower.includes('vendor') || lower.includes('counterparty') || lower === 'name')) mapping.payeeCol = idx;
+      else if (mapping.amountCol === -1 && (lower === 'amount' || lower.includes('amount') || lower === 'value' || lower === 'net' || lower === 'total')) mapping.amountCol = idx;
+      else if (mapping.debitCol === -1 && (lower.includes('debit') || lower.includes('withdrawal') || lower.includes('outflow') || lower.includes('money out') || lower === 'spent')) mapping.debitCol = idx;
+      else if (mapping.creditCol === -1 && (lower.includes('credit') || lower.includes('deposit') || lower.includes('inflow') || lower.includes('money in') || lower === 'received')) mapping.creditCol = idx;
       else if (mapping.typeCol === -1 && (lower === 'type' || lower === 'transaction type' || lower === 'dr/cr')) mapping.typeCol = idx;
       else if (mapping.referenceCol === -1 && (lower.includes('ref') || lower.includes('check') || lower.includes('id') || lower.includes('number'))) mapping.referenceCol = idx;
-      else if (mapping.categoryCol === -1 && (lower.includes('cat') || lower.includes('offset') || lower.includes('gl code') || lower.includes('expense account'))) mapping.categoryCol = idx;
-      else if (mapping.accountCol === -1 && (lower === 'account' || lower === 'bank account' || lower === 'payment account' || lower === 'source account')) mapping.accountCol = idx;
+      else if (mapping.accountCol === -1 && (lower === 'account' || lower.includes('bank account') || lower.includes('payment account') || lower.includes('source account'))) mapping.accountCol = idx;
     });
+
+    if (mapping.categoryCol === -1 && Array.isArray(dataRows) && dataRows.length > 0 && mapping.typeCol >= 0) {
+      const txTypeKeywords = new Set(['DEBIT', 'CREDIT', 'DR', 'CR', 'EXPENSE', 'INCOME', 'TRANSFER', 'WITHDRAWAL', 'DEPOSIT', 'CHECK', 'POS', 'ACH', 'PAYMENT']);
+      const sampleVals = dataRows.slice(0, 10).map((r) => String(r[mapping.typeCol] || '').trim().toUpperCase()).filter(Boolean);
+      if (sampleVals.length > 0 && sampleVals.some((v) => !txTypeKeywords.has(v))) {
+        mapping.categoryCol = mapping.typeCol;
+        mapping.typeCol = -1;
+      }
+    }
+
     if (mapping.dateCol === -1 && headers.length > 0) mapping.dateCol = 0;
     if (mapping.descriptionCol === -1 && headers.length > 1) mapping.descriptionCol = 1;
-    if (mapping.amountCol === -1 && mapping.debitCol === -1 && headers.length > 2) mapping.amountCol = 2;
+    if (mapping.amountCol === -1 && mapping.debitCol === -1 && headers.length > 2) {
+      let foundAmtCol = -1;
+      if (Array.isArray(dataRows) && dataRows.length > 0) {
+        for (let c = headers.length - 1; c >= 0; c--) {
+          if (c === mapping.dateCol || c === mapping.descriptionCol || c === mapping.payeeCol || c === mapping.categoryCol) continue;
+          const val = String(dataRows[0][c] || '').trim();
+          if (val && /^-?[$£€¥]?[\d,]+(\.\d+)?$/.test(val.replace(/[()]/g, ''))) {
+            foundAmtCol = c;
+            break;
+          }
+        }
+      }
+      mapping.amountCol = foundAmtCol >= 0 ? foundAmtCol : 2;
+    }
     return mapping;
   }
 
@@ -1133,24 +1180,100 @@
       if (allRows.length < 2) throw new Error('CSV file must have a header row and at least one transaction row.');
       const headers = allRows[0];
       const dataRows = allRows.slice(1);
-      const mapping = body.customMapping || autoDetectColumns(headers);
+      const mapping = body.customMapping || autoDetectColumns(headers, dataRows);
       const expDefault = store.accounts.find((a) => a.code === '5990' || a.code === '5999') || store.accounts.find((a) => a.type === 'EXPENSE') || store.accounts[0];
       const incDefault = store.accounts.find((a) => a.code === '4990' || a.code === '4090') || store.accounts.find((a) => a.type === 'INCOME') || store.accounts[0];
+      let createdCategoriesCount = 0;
 
-      const matchAccountFromText = (rawText) => {
+      const matchAccountFromText = (rawText, preferInflow = null) => {
         const s = String(rawText || '').trim();
         if (!s) return null;
         const lower = s.toLowerCase();
-        const codeMatch = s.match(/^(\d{3,5})\b/);
-        if (codeMatch) {
-          const byCode = store.accounts.find((a) => a.code === codeMatch[1]);
-          if (byCode) return byCode;
+        if (['uncategorized', 'none', 'n/a', '-', 'null', 'unknown'].includes(lower)) return null;
+        const codePrefix = s.split(/[\s\-—:]/)[0].trim();
+
+        const exact = store.accounts.find((a) => String(a.code).toLowerCase() === lower || String(a.code) === codePrefix) ||
+                      store.accounts.find((a) => a.name.toLowerCase() === lower);
+        if (exact) return exact;
+
+        const catPool = preferInflow !== null
+          ? store.accounts.filter((a) => a.type === 'INCOME' || a.type === 'EXPENSE')
+          : store.accounts;
+
+        if (lower.length >= 4) {
+          const sub = catPool.find((a) => lower.includes(a.name.toLowerCase()) || a.name.toLowerCase().includes(lower)) ||
+                      store.accounts.find((a) => lower.includes(a.name.toLowerCase()) || a.name.toLowerCase().includes(lower));
+          if (sub) return sub;
         }
-        return (
-          store.accounts.find((a) => a.code.toLowerCase() === lower || a.name.toLowerCase() === lower) ||
-          store.accounts.find((a) => lower.includes(a.name.toLowerCase()) || a.name.toLowerCase().includes(lower)) ||
-          null
-        );
+
+        const inputWords = lower.split(/[^a-z0-9]+/).filter(Boolean);
+        for (const syn of CATEGORY_SYNONYM_PATTERNS) {
+          const matchedKeyword = syn.keywords.some((k) => (k.includes(' ') ? lower.includes(k) : inputWords.includes(k)));
+          if (matchedKeyword) {
+            const found = catPool.find((a) =>
+              syn.matchTerms.some((t) => String(a.code) === t || a.name.toLowerCase().includes(t))
+            );
+            if (found) return found;
+          }
+        }
+
+        const stopWords = new Set(['and', 'the', 'for', 'with', 'from', 'expense', 'expenses', 'income', 'account', 'general', 'other', 'misc', 'care', 'fees', 'payment', 'payments']);
+        const tokens = inputWords.filter((w) => w.length >= 4 && !stopWords.has(w));
+        if (tokens.length > 0) {
+          let bestAcc = null;
+          let bestScore = 0;
+          for (const a of catPool) {
+            if (preferInflow === true && a.type === 'EXPENSE') continue;
+            if (preferInflow === false && a.type === 'INCOME') continue;
+            const aWords = a.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+            let score = 0;
+            for (const tok of tokens) {
+              if (aWords.includes(tok)) score++;
+            }
+            if (score > bestScore) {
+              bestScore = score;
+              bestAcc = a;
+            }
+          }
+          if (bestAcc && bestScore > 0) return bestAcc;
+        }
+        return null;
+      };
+
+      const getOrCreateCSVCategory = (rawText, isInflow) => {
+        const clean = String(rawText || '').trim();
+        if (!clean) return { account: null, created: false };
+        const lower = clean.toLowerCase();
+        if (['uncategorized', 'none', 'n/a', '-', 'null', 'unknown'].includes(lower)) {
+          return { account: null, created: false };
+        }
+        const matched = matchAccountFromText(clean, isInflow);
+        if (matched) return { account: matched, created: false };
+
+        const targetType = isInflow ? 'INCOME' : 'EXPENSE';
+        const targetSubtype = isInflow ? 'OPERATING_INCOME' : 'OPERATING_EXPENSE';
+        const baseCode = isInflow ? 4100 : 5100;
+        const maxCode = isInflow ? 4890 : 5890;
+        const existingCodes = new Set(store.accounts.map((a) => String(a.code)));
+        let nextCode = baseCode;
+        while (existingCodes.has(String(nextCode)) && nextCode < maxCode) nextCode += 10;
+        while (existingCodes.has(String(nextCode))) nextCode += 1;
+
+        const formattedName = clean.charAt(0).toUpperCase() + clean.slice(1);
+        const newAcc = {
+          id: store.nextIds.account++,
+          code: String(nextCode),
+          name: formattedName,
+          type: targetType,
+          subtype: targetSubtype,
+          currency: 'USD',
+          description: `Auto-created from CSV Import category "${formattedName}"`,
+          tax_category: isInflow ? 'Income' : 'Expense',
+          is_system: 0
+        };
+        store.accounts.push(newAcc);
+        accMap.set(newAcc.id, newAcc);
+        return { account: newAcc, created: true };
       };
 
       const transactions = dataRows.map((row, idx) => {
@@ -1175,18 +1298,22 @@
 
         const isInflow = signedAmount > 0;
         const absAmount = round2(Math.abs(signedAmount));
-        let txType = isInflow ? 'INCOME' : 'EXPENSE';
+        let txType = rawType === 'TRANSFER' ? 'TRANSFER' : isInflow ? 'INCOME' : 'EXPENSE';
 
-        const csvMatchedAcc = rawCategory ? matchAccountFromText(rawCategory) : null;
+        const { account: csvMatchedAcc, created: csvCreated } = rawCategory ? getOrCreateCSVCategory(rawCategory, isInflow) : { account: null, created: false };
+        if (csvCreated) createdCategoriesCount++;
+
         const csvPaymentAcc = rawAccount ? matchAccountFromText(rawAccount) : null;
-        const rowPaymentAccountId = csvPaymentAcc ? csvPaymentAcc.id : Number(body.bankAccountId);
+        const rowPaymentAccountId = (csvPaymentAcc && ['ASSET', 'LIABILITY', 'EQUITY'].includes(csvPaymentAcc.type)) ? csvPaymentAcc.id : Number(body.bankAccountId);
 
         const rule = store.categorization_rules.find((r) =>
           `${description} ${payee}`.toUpperCase().includes(String(r.match_value || '').toUpperCase())
         );
 
         let catAcc = csvMatchedAcc || (rule && accMap.get(rule.target_account_id)) || (isInflow ? incDefault : expDefault);
-        let matchedRuleName = csvMatchedAcc ? `CSV Column (${csvMatchedAcc.code})` : (rule ? rule.name : null);
+        let matchedRuleName = csvMatchedAcc
+          ? (csvCreated ? `CSV New Category (${csvMatchedAcc.code})` : `CSV Category (${csvMatchedAcc.code})`)
+          : (rule ? `Rule: ${rule.name}` : null);
         if (csvMatchedAcc && ['ASSET', 'LIABILITY', 'EQUITY'].includes(csvMatchedAcc.type)) {
           txType = 'TRANSFER';
         }
@@ -1201,6 +1328,7 @@
           description: description || payee || 'Bank Statement Entry',
           payee: payee || description.slice(0, 28),
           reference,
+          csvCategory: rawCategory,
           signedAmount: round2(signedAmount),
           absAmount,
           txType,
@@ -1217,6 +1345,8 @@
         };
       }).filter((t) => t.absAmount > 0);
 
+      if (createdCategoriesCount > 0) saveStore(store);
+
       return {
         headers, mapping,
         totalRows: transactions.length,
@@ -1224,6 +1354,8 @@
         duplicateCount: transactions.filter((t) => t.isDuplicate).length,
         autoCategorizedCount: transactions.filter((t) => Boolean(t.matchedRuleName)).length,
         ruleMatchedCount: transactions.filter((t) => Boolean(t.matchedRuleName)).length,
+        createdCategoriesCount,
+        accounts: getAccountsWithBalances(store),
         transactions
       };
     }
@@ -1267,7 +1399,7 @@
         });
 
         const catAccObj = accMap.get(catAccId);
-        if (autoLearnRules && catAccObj && !uncatCodes.has(catAccObj.code) && !r.matchedRule) {
+        if (autoLearnRules && catAccObj && !uncatCodes.has(catAccObj.code)) {
           const keyword = String(r.payee || '').trim();
           if (keyword.length >= 3 && keyword.length <= 45 && !/^\d+$/.test(keyword)) {
             const exists = store.categorization_rules.some((ru) => String(ru.match_value || '').toLowerCase() === keyword.toLowerCase());
@@ -1650,14 +1782,14 @@
   }
 
   const SAMPLE_CSV_TEXT = [
-    'Date,Description,Payee,Reference,Withdrawal,Deposit,Amount',
-    '2026-10-19,WHOLE FOODS MARKET #1042 ORGANIC GROCERIES,Whole Foods Market,POS-9921,142.85,,-142.85',
-    '2026-10-19,UBER *TRIP AIRPORT SHUTTLE,Uber,POS-9922,48.50,,-48.50',
-    '2026-10-20,STARBUCKS STORE #4412 ESPRESSO,Starbucks,POS-9925,14.75,,-14.75',
-    '2026-10-21,AWS CLOUD SERVICES MONTHLY HOSTING,Amazon Web Services,INV-AWS10,64.20,,-64.20',
-    '2026-10-22,SHELL SERVICE STATION FUEL,Shell Station,POS-9930,52.10,,-52.10',
-    '2026-10-24,PAYROLL DIRECT DEPOSIT TECHCORP INC,TechCorp Direct Deposit,DD-1024,,4650.00,4650.00',
-    '2026-10-25,TRADER JOES #210 GROCERY,Trader Joes,POS-9941,118.40,,-118.40'
+    'Date,Description,Payee,Category,Reference,Withdrawal,Deposit,Amount',
+    '2026-10-19,WHOLE FOODS MARKET #1042 ORGANIC GROCERIES,Whole Foods Market,Groceries & Supermarkets,POS-9921,142.85,,-142.85',
+    '2026-10-19,UBER *TRIP AIRPORT SHUTTLE,Uber,Auto & Transport,POS-9922,48.50,,-48.50',
+    '2026-10-20,STARBUCKS STORE #4412 ESPRESSO,Starbucks,Restaurants & Dining Out,POS-9925,14.75,,-14.75',
+    '2026-10-21,AWS CLOUD SERVICES MONTHLY HOSTING,Amazon Web Services,"Software, Subscriptions & Tech",INV-AWS10,64.20,,-64.20',
+    '2026-10-22,SHELL SERVICE STATION FUEL,Shell Station,Auto & Transport,POS-9930,52.10,,-52.10',
+    '2026-10-24,PAYROLL DIRECT DEPOSIT TECHCORP INC,TechCorp Direct Deposit,Salary & Wages (Net Paycheck),DD-1024,,4650.00,4650.00',
+    '2026-10-25,TRADER JOES #210 GROCERY,Trader Joes,Groceries & Supermarkets,POS-9941,118.40,,-118.40'
   ].join('\r\n');
 
   function triggerBlobDownload(filename, content, mime = 'text/csv;charset=utf-8') {

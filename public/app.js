@@ -107,6 +107,7 @@ async function loadBootstrap() {
     renderDashboard();
     renderTransactionsView();
     renderImportExportView();
+    if (APP.csvPreviewData) renderCSVPreviewUI();
     renderCOAView();
     renderRulesList();
     renderBudgetsAndGoals();
@@ -602,8 +603,15 @@ async function runCSVPreview(customMapping = null) {
         customMapping
       })
     });
+    if (Array.isArray(preview.accounts) && preview.accounts.length > 0) {
+      APP.accounts = preview.accounts;
+      renderCOAView();
+    }
     APP.csvPreviewData = preview;
     renderCSVPreviewUI();
+    if (preview.createdCategoriesCount > 0) {
+      showToast(`Detected & created ${preview.createdCategoriesCount} new category account(s) from your CSV file!`);
+    }
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -617,6 +625,13 @@ function renderCSVPreviewUI() {
   document.getElementById('csvStatTotal').textContent = p.totalRows ?? p.validCount ?? 0;
   document.getElementById('csvStatMatched').textContent = p.ruleMatchedCount ?? p.autoCategorizedCount ?? 0;
   document.getElementById('csvStatDuplicates').textContent = p.duplicateCount ?? 0;
+
+  const bulkCatSelect = document.getElementById('csvBulkCategorySelect');
+  if (bulkCatSelect) {
+    bulkCatSelect.innerHTML = APP.accounts
+      .map((a) => `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${escapeHtml(a.type)})</option>`)
+      .join('');
+  }
 
   const fields = [
     { key: 'dateCol', label: 'Date Column' },
@@ -646,41 +661,111 @@ function renderCSVPreviewRows() {
   const p = APP.csvPreviewData;
   if (!p) return;
 
+  const paymentEligibleAccounts = APP.accounts.filter((a) => ['ASSET', 'LIABILITY', 'EQUITY'].includes(a.type));
   const tbody = document.getElementById('csvPreviewTableBody');
   tbody.innerHTML = p.transactions.map((t, idx) => {
     const ruleLabel = t.matchedRuleName || t.matchedRule;
+    const csvCatText = t.csvCategory ? String(t.csvCategory).trim() : '';
+    const defaultPayAccId = Number(t.paymentAccountId) || Number(document.getElementById('importTargetAccount')?.value);
     return `
       <tr class="${t.isDuplicate ? 'bg-amber-50/60' : 'hover:bg-slate-50'}">
         <td class="py-2 px-2.5">
           <input type="checkbox" ${t.selected ? 'checked' : ''} onchange="APP.csvPreviewData.transactions[${idx}].selected = this.checked" />
         </td>
-        <td class="py-2 px-2 font-mono text-[11px]">${escapeHtml(t.date)}</td>
-        <td class="py-2 px-2 max-w-[200px] truncate" title="${escapeHtml(t.description)}">${escapeHtml(t.description)}</td>
-        <td class="py-2 px-2">
-          <input type="text" value="${escapeHtml(t.payee)}" oninput="APP.csvPreviewData.transactions[${idx}].payee = this.value" class="px-2 py-1 rounded border border-slate-200 text-xs w-36" />
+        <td class="py-2 px-1.5">
+          <input type="date" value="${escapeHtml(t.date)}" onchange="APP.csvPreviewData.transactions[${idx}].date = this.value" class="px-1.5 py-1 rounded border border-slate-200 font-mono text-[11px] w-32 bg-white" />
         </td>
-        <td class="py-2 px-2">
-          <select onchange="APP.csvPreviewData.transactions[${idx}].categoryAccountId = Number(this.value)" class="px-2 py-1 rounded border border-slate-200 bg-white text-xs w-48">
-            ${APP.accounts.map((a) => `<option value="${a.id}" ${a.id === t.categoryAccountId ? 'selected' : ''}>${escapeHtml(a.code)} - ${escapeHtml(a.name)}</option>`).join('')}
+        <td class="py-2 px-1.5">
+          <input type="text" value="${escapeHtml(t.description)}" oninput="APP.csvPreviewData.transactions[${idx}].description = this.value" placeholder="Description / Memo" class="px-2 py-1 rounded border border-slate-200 text-xs w-48 bg-white" />
+        </td>
+        <td class="py-2 px-1.5">
+          <input type="text" value="${escapeHtml(t.payee)}" oninput="APP.csvPreviewData.transactions[${idx}].payee = this.value" placeholder="Payee" class="px-2 py-1 rounded border border-slate-200 text-xs w-36 bg-white" />
+        </td>
+        <td class="py-2 px-1.5">
+          <select onchange="onCSVPreviewTxTypeChange(${idx}, this.value)" class="px-1.5 py-1 rounded border border-slate-200 bg-white text-[11px] font-semibold ${t.txType === 'INCOME' ? 'text-emerald-700' : t.txType === 'TRANSFER' ? 'text-indigo-700' : 'text-rose-700'}">
+            <option value="EXPENSE" ${t.txType === 'EXPENSE' ? 'selected' : ''}>Expense (-)</option>
+            <option value="INCOME" ${t.txType === 'INCOME' ? 'selected' : ''}>Income (+)</option>
+            <option value="TRANSFER" ${t.txType === 'TRANSFER' ? 'selected' : ''}>Transfer</option>
           </select>
         </td>
-        <td class="py-2 px-2">
-          ${t.isDuplicate
-            ? `<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold text-[10px]">Duplicate (${escapeHtml(t.duplicateEntryNumber)})</span>`
-            : ruleLabel
-            ? `<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px]">${escapeHtml(ruleLabel)}</span>`
-            : `<span class="text-[10px] text-slate-400">Select Category &rarr; Auto-Learns</span>`
-          }
+        <td class="py-2 px-1.5">
+          <select onchange="onCSVPreviewCategoryChange(${idx}, this.value)" class="px-2 py-1 rounded border border-slate-300 bg-white text-xs w-52 font-medium text-slate-900">
+            ${APP.accounts.map((a) => `<option value="${a.id}" ${Number(a.id) === Number(t.categoryAccountId) ? 'selected' : ''}>${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${escapeHtml(a.type)})</option>`).join('')}
+          </select>
+          <div class="mt-0.5 flex flex-wrap items-center gap-1">
+            ${t.isDuplicate
+              ? `<span class="px-1.5 py-0.2 rounded bg-amber-100 text-amber-800 font-semibold text-[9px]">Duplicate (${escapeHtml(t.duplicateEntryNumber)})</span>`
+              : csvCatText
+              ? `<span class="px-1.5 py-0.2 rounded bg-emerald-100 text-emerald-800 font-semibold text-[9px]" title="Category detected from your CSV file">✓ CSV: ${escapeHtml(csvCatText)}</span>`
+              : ruleLabel
+              ? `<span class="px-1.5 py-0.2 rounded bg-blue-100 text-blue-800 font-semibold text-[9px]">${escapeHtml(ruleLabel)}</span>`
+              : `<span class="text-[9px] text-slate-400">Review / Change Category</span>`
+            }
+          </div>
         </td>
-        <td class="py-2 px-2 text-center">
+        <td class="py-2 px-1.5">
+          <select onchange="APP.csvPreviewData.transactions[${idx}].paymentAccountId = Number(this.value)" class="px-2 py-1 rounded border border-slate-200 bg-white text-[11px] w-40">
+            ${paymentEligibleAccounts.map((a) => `<option value="${a.id}" ${Number(a.id) === defaultPayAccId ? 'selected' : ''}>${escapeHtml(a.code)} - ${escapeHtml(a.name)}</option>`).join('')}
+          </select>
+        </td>
+        <td class="py-2 px-1.5 text-center">
           <input type="checkbox" ${t.isTaxDeductible ? 'checked' : ''} onchange="APP.csvPreviewData.transactions[${idx}].isTaxDeductible = this.checked ? 1 : 0" />
         </td>
-        <td class="py-2 px-2 text-right font-mono font-bold ${t.txType === 'INCOME' ? 'text-emerald-600' : 'text-rose-600'}">
-          ${t.txType === 'INCOME' ? '+' : '-'}${fmtMoney(t.absAmount)}
+        <td class="py-2 px-1.5 text-right">
+          <input type="number" step="0.01" min="0" value="${Number(t.absAmount || 0).toFixed(2)}" oninput="onCSVPreviewAmountChange(${idx}, this.value)" class="px-2 py-1 rounded border border-slate-200 bg-white text-right font-mono font-bold text-xs w-28 ${t.txType === 'INCOME' ? 'text-emerald-600' : 'text-rose-600'}" />
         </td>
       </tr>
     `;
   }).join('');
+}
+
+function onCSVPreviewTxTypeChange(idx, newType) {
+  if (!APP.csvPreviewData || !APP.csvPreviewData.transactions[idx]) return;
+  const row = APP.csvPreviewData.transactions[idx];
+  row.txType = newType;
+  row.signedAmount = newType === 'INCOME' ? Math.abs(row.absAmount) : -Math.abs(row.absAmount);
+  renderCSVPreviewRows();
+}
+
+function onCSVPreviewCategoryChange(idx, newAccountId) {
+  if (!APP.csvPreviewData || !APP.csvPreviewData.transactions[idx]) return;
+  const row = APP.csvPreviewData.transactions[idx];
+  const accId = Number(newAccountId);
+  row.categoryAccountId = accId;
+  const acc = APP.accounts.find((a) => Number(a.id) === accId);
+  if (acc) {
+    row.categoryAccountName = `${acc.code} - ${acc.name}`;
+    row.matchedRule = `Reviewed (${acc.code})`;
+    row.matchedRuleName = `Reviewed (${acc.code})`;
+  }
+}
+
+function onCSVPreviewAmountChange(idx, rawVal) {
+  if (!APP.csvPreviewData || !APP.csvPreviewData.transactions[idx]) return;
+  const row = APP.csvPreviewData.transactions[idx];
+  const val = Math.max(0, Math.round((parseFloat(rawVal) || 0) * 100) / 100);
+  row.absAmount = val;
+  row.signedAmount = row.txType === 'INCOME' ? val : -val;
+}
+
+function applyBulkCategoryToCSVPreview() {
+  if (!APP.csvPreviewData || !Array.isArray(APP.csvPreviewData.transactions)) return;
+  const catId = Number(document.getElementById('csvBulkCategorySelect')?.value);
+  if (!catId) return;
+  const acc = APP.accounts.find((a) => Number(a.id) === catId);
+  if (!acc) return;
+  let count = 0;
+  APP.csvPreviewData.transactions.forEach((t) => {
+    if (t.selected) {
+      t.categoryAccountId = acc.id;
+      t.categoryAccountName = `${acc.code} - ${acc.name}`;
+      t.matchedRule = `Bulk Assigned (${acc.code})`;
+      t.matchedRuleName = `Bulk Assigned (${acc.code})`;
+      count++;
+    }
+  });
+  renderCSVPreviewRows();
+  showToast(`Applied category "${acc.code} - ${acc.name}" to ${count} selected row(s)!`);
 }
 
 function toggleAllCSVPreviewRows(checked) {

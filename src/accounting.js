@@ -493,7 +493,7 @@ function matchCategorizationRule(description, payee, isInflow) {
 /**
  * Auto-detect column indices from CSV header row
  */
-function autoDetectColumns(headers) {
+function autoDetectColumns(headers, dataRows = []) {
   const mapping = {
     dateCol: -1,
     descriptionCol: -1,
@@ -511,50 +511,199 @@ function autoDetectColumns(headers) {
     const lower = String(h || '').toLowerCase().trim();
     if (mapping.dateCol === -1 && (lower.includes('date') || lower === 'posted' || lower === 'timestamp')) {
       mapping.dateCol = idx;
-    } else if (mapping.descriptionCol === -1 && (lower.includes('desc') || lower.includes('memo') || lower.includes('narrative') || lower.includes('details') || lower.includes('particulars'))) {
+    } else if (mapping.categoryCol === -1 && (
+      lower.includes('cat') || lower.includes('offset') || lower.includes('class') ||
+      lower.includes('gl') || lower.includes('ledger') || lower.includes('coa') ||
+      lower.includes('chart') || lower.includes('bucket') || lower.includes('group') ||
+      lower.includes('head') || lower.includes('dept') || lower.includes('department') ||
+      lower === 'expense' || lower === 'income' || lower.includes('account name') || lower.includes('account code')
+    )) {
+      mapping.categoryCol = idx;
+    } else if (mapping.descriptionCol === -1 && (lower.includes('desc') || lower.includes('memo') || lower.includes('narrative') || lower.includes('details') || lower.includes('particulars') || lower === 'note' || lower === 'notes')) {
       mapping.descriptionCol = idx;
-    } else if (mapping.payeeCol === -1 && (lower.includes('payee') || lower.includes('merchant') || lower.includes('vendor') || lower.includes('counterparty'))) {
+    } else if (mapping.payeeCol === -1 && (lower.includes('payee') || lower.includes('merchant') || lower.includes('vendor') || lower.includes('counterparty') || lower === 'name')) {
       mapping.payeeCol = idx;
-    } else if (mapping.amountCol === -1 && (lower === 'amount' || lower.includes('amount') || lower === 'value' || lower === 'net')) {
+    } else if (mapping.amountCol === -1 && (lower === 'amount' || lower.includes('amount') || lower === 'value' || lower === 'net' || lower === 'total')) {
       mapping.amountCol = idx;
-    } else if (mapping.debitCol === -1 && (lower.includes('debit') || lower.includes('withdrawal') || lower.includes('outflow') || lower.includes('money out'))) {
+    } else if (mapping.debitCol === -1 && (lower.includes('debit') || lower.includes('withdrawal') || lower.includes('outflow') || lower.includes('money out') || lower === 'spent')) {
       mapping.debitCol = idx;
-    } else if (mapping.creditCol === -1 && (lower.includes('credit') || lower.includes('deposit') || lower.includes('inflow') || lower.includes('money in'))) {
+    } else if (mapping.creditCol === -1 && (lower.includes('credit') || lower.includes('deposit') || lower.includes('inflow') || lower.includes('money in') || lower === 'received')) {
       mapping.creditCol = idx;
     } else if (mapping.typeCol === -1 && (lower === 'type' || lower === 'transaction type' || lower === 'dr/cr')) {
       mapping.typeCol = idx;
     } else if (mapping.referenceCol === -1 && (lower.includes('ref') || lower.includes('check') || lower.includes('id') || lower.includes('number'))) {
       mapping.referenceCol = idx;
-    } else if (mapping.categoryCol === -1 && (lower.includes('cat') || lower.includes('offset') || lower.includes('expense') || lower.includes('income'))) {
-      mapping.categoryCol = idx;
     } else if (mapping.accountCol === -1 && (lower === 'account' || lower.includes('bank account') || lower.includes('payment account') || lower.includes('source account'))) {
       mapping.accountCol = idx;
     }
   });
 
+  // Content-based heuristic: if categoryCol is still -1, check if typeCol or accountCol actually holds category names
+  if (mapping.categoryCol === -1 && Array.isArray(dataRows) && dataRows.length > 0) {
+    const txTypeKeywords = new Set(['DEBIT', 'CREDIT', 'DR', 'CR', 'EXPENSE', 'INCOME', 'TRANSFER', 'WITHDRAWAL', 'DEPOSIT', 'CHECK', 'POS', 'ACH', 'PAYMENT']);
+    if (mapping.typeCol >= 0) {
+      const sampleVals = dataRows.slice(0, 10).map((r) => String(r[mapping.typeCol] || '').trim().toUpperCase()).filter(Boolean);
+      if (sampleVals.length > 0 && sampleVals.some((v) => !txTypeKeywords.has(v))) {
+        mapping.categoryCol = mapping.typeCol;
+        mapping.typeCol = -1;
+      }
+    }
+  }
+
   if (mapping.dateCol === -1 && headers.length > 0) mapping.dateCol = 0;
   if (mapping.descriptionCol === -1 && headers.length > 1) mapping.descriptionCol = 1;
-  if (mapping.amountCol === -1 && mapping.debitCol === -1 && headers.length > 2) mapping.amountCol = 2;
+  if (mapping.amountCol === -1 && mapping.debitCol === -1 && headers.length > 2) {
+    // Pick last numeric-looking column or col 2
+    let foundAmtCol = -1;
+    if (Array.isArray(dataRows) && dataRows.length > 0) {
+      for (let c = headers.length - 1; c >= 0; c--) {
+        if (c === mapping.dateCol || c === mapping.descriptionCol || c === mapping.payeeCol || c === mapping.categoryCol) continue;
+        const val = String(dataRows[0][c] || '').trim();
+        if (val && /^-?[$£€¥]?[\d,]+(\.\d+)?$/.test(val.replace(/[()]/g, ''))) {
+          foundAmtCol = c;
+          break;
+        }
+      }
+    }
+    mapping.amountCol = foundAmtCol >= 0 ? foundAmtCol : 2;
+  }
 
   return mapping;
 }
 
-function matchAccountByText(allAccounts, rawText) {
+const CATEGORY_SYNONYM_PATTERNS = [
+  { keywords: ['grocery', 'groceries', 'supermarket', 'supermarkets', 'produce'], matchTerms: ['grocer'] },
+  { keywords: ['restaurant', 'restaurants', 'dining', 'cafe', 'coffee', 'takeout', 'food & drink', 'food and drink', 'eating out', 'fast food', 'meals', 'lunch', 'dinner'], matchTerms: ['dining', 'restaurant', 'coffee'] },
+  { keywords: ['rent', 'mortgage', 'housing', 'hoa', 'apartment', 'lease'], matchTerms: ['housing', 'rent', 'mortgage'] },
+  { keywords: ['utility', 'utilities', 'electric', 'electricity', 'water', 'power', 'internet', 'wifi', 'phone', 'mobile', 'telecom', 'trash', 'sewer', 'cable'], matchTerms: ['utilit', 'internet', 'mobile'] },
+  { keywords: ['auto', 'car', 'fuel', 'gas', 'petrol', 'parking', 'toll', 'uber', 'lyft', 'transit', 'transport', 'transportation', 'vehicle', 'commute'], matchTerms: ['transportation', 'fuel', 'transit', 'auto, fuel'] },
+  { keywords: ['health', 'healthcare', 'medical', 'doctor', 'dental', 'dentist', 'pharmacy', 'vision', 'hospital', 'clinic'], matchTerms: ['healthcare', 'medical', 'pharmacy'] },
+  { keywords: ['insurance', 'premium', 'premiums', 'policy'], matchTerms: ['insurance'] },
+  { keywords: ['software', 'subscription', 'subscriptions', 'saas', 'cloud', 'hosting', 'streaming', 'tech', 'technology', 'domain'], matchTerms: ['software', 'subscription', 'cloud'] },
+  { keywords: ['travel', 'flight', 'flights', 'airline', 'hotel', 'airbnb', 'lodging', 'vacation', 'holiday'], matchTerms: ['travel', 'flight', 'lodging'] },
+  { keywords: ['entertainment', 'movies', 'fitness', 'gym', 'hobbies', 'recreation', 'concert'], matchTerms: ['entertainment', 'fitness'] },
+  { keywords: ['office', 'supplies', 'equipment', 'contractor', 'professional', 'legal', 'accounting', 'postage', 'shipping', 'marketing', 'advertising'], matchTerms: ['home office', 'office', 'business'] },
+  { keywords: ['tax', 'taxes', 'irs', 'estimated tax', 'state tax', 'federal tax'], matchTerms: ['taxes paid', 'income taxes', '5200'] },
+  { keywords: ['salary', 'wages', 'paycheck', 'payroll', 'direct deposit', 'employment', 'bonus', 'stipend'], matchTerms: ['salary', 'payroll', 'wages', '4010'] },
+  { keywords: ['freelance', 'consulting', 'client', 'side hustle', 'business income', 'revenue', 'sales', 'commission', 'contract'], matchTerms: ['freelance', 'consulting', '4020'] },
+  { keywords: ['dividend', 'dividends', 'interest', 'investment income', 'capital gain', 'yield', 'distribution'], matchTerms: ['dividend', 'interest', '4030'] }
+];
+
+function matchAccountByText(allAccounts, rawText, preferInflow = null) {
   if (!rawText) return null;
   const clean = String(rawText).trim();
   if (!clean) return null;
   const lower = clean.toLowerCase();
-  const codePrefix = clean.split(/[\s\-—]/)[0].trim();
-  return (
-    allAccounts.find((a) => String(a.code) === clean || String(a.code) === codePrefix) ||
-    allAccounts.find((a) => a.name.toLowerCase() === lower) ||
-    allAccounts.find((a) => a.name.toLowerCase().includes(lower) || lower.includes(a.name.toLowerCase()))
+  if (['uncategorized', 'none', 'n/a', '-', 'null', 'unknown'].includes(lower)) return null;
+
+  const codePrefix = clean.split(/[\s\-—:]/)[0].trim();
+
+  // 1. Exact code or exact name
+  const exact = allAccounts.find((a) => String(a.code).toLowerCase() === lower || String(a.code) === codePrefix) ||
+                allAccounts.find((a) => a.name.toLowerCase() === lower);
+  if (exact) return exact;
+
+  // Pool of candidate accounts (when matching a category, prefer INCOME/EXPENSE accounts first)
+  const catPool = preferInflow !== null
+    ? allAccounts.filter((a) => a.type === 'INCOME' || a.type === 'EXPENSE')
+    : allAccounts;
+
+  // 2. Substring match (only when clean is at least 4 chars)
+  if (lower.length >= 4) {
+    const sub = catPool.find((a) => a.name.toLowerCase().includes(lower) || lower.includes(a.name.toLowerCase())) ||
+                allAccounts.find((a) => a.name.toLowerCase().includes(lower) || lower.includes(a.name.toLowerCase()));
+    if (sub) return sub;
+  }
+
+  // 3. Whole-word / phrase synonym match
+  const inputWords = lower.split(/[^a-z0-9]+/).filter(Boolean);
+  for (const syn of CATEGORY_SYNONYM_PATTERNS) {
+    const matchedKeyword = syn.keywords.some((k) => (k.includes(' ') ? lower.includes(k) : inputWords.includes(k)));
+    if (matchedKeyword) {
+      const found = catPool.find((a) =>
+        syn.matchTerms.some((t) => String(a.code) === t || a.name.toLowerCase().includes(t))
+      );
+      if (found) return found;
+    }
+  }
+
+  // 4. Token word overlap (exact word match on words >= 4 chars)
+  const stopWords = new Set(['and', 'the', 'for', 'with', 'from', 'expense', 'expenses', 'income', 'account', 'general', 'other', 'misc', 'care', 'fees', 'payment', 'payments']);
+  const tokens = inputWords.filter((w) => w.length >= 4 && !stopWords.has(w));
+  if (tokens.length > 0) {
+    let bestAcc = null;
+    let bestScore = 0;
+    for (const a of catPool) {
+      if (preferInflow === true && a.type === 'EXPENSE') continue;
+      if (preferInflow === false && a.type === 'INCOME') continue;
+      const aWords = a.name.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+      let score = 0;
+      for (const tok of tokens) {
+        if (aWords.includes(tok)) score++;
+      }
+      if (score > bestScore) {
+        bestScore = score;
+        bestAcc = a;
+      }
+    }
+    if (bestAcc && bestScore > 0) return bestAcc;
+  }
+
+  return null;
+}
+
+function getOrCreateCSVCategoryAccount(allAccounts, rawCategoryText, isInflow) {
+  const clean = String(rawCategoryText || '').trim();
+  if (!clean) return { account: null, created: false };
+  const lower = clean.toLowerCase();
+  if (['uncategorized', 'none', 'n/a', '-', 'null', 'unknown'].includes(lower)) {
+    return { account: null, created: false };
+  }
+
+  const matched = matchAccountByText(allAccounts, clean, isInflow);
+  if (matched) return { account: matched, created: false };
+
+  // Auto-create a new Category Account in the Chart of Accounts so the CSV category is preserved!
+  const targetType = isInflow ? 'INCOME' : 'EXPENSE';
+  const targetSubtype = isInflow ? 'OPERATING_INCOME' : 'OPERATING_EXPENSE';
+  const baseCode = isInflow ? 4100 : 5100;
+  const maxCode = isInflow ? 4890 : 5890;
+  const existingCodes = new Set(allAccounts.map((a) => String(a.code)));
+  let nextCode = baseCode;
+  while (existingCodes.has(String(nextCode)) && nextCode < maxCode) {
+    nextCode += 10;
+  }
+  while (existingCodes.has(String(nextCode))) {
+    nextCode += 1;
+  }
+
+  const formattedName = clean.charAt(0).toUpperCase() + clean.slice(1);
+  const info = db.prepare(`
+    INSERT INTO accounts (code, name, type, subtype, currency, description, tax_category, is_system, is_active)
+    VALUES (?, ?, ?, ?, 'USD', ?, ?, 0, 1)
+  `).run(
+    String(nextCode),
+    formattedName,
+    targetType,
+    targetSubtype,
+    `Auto-created from CSV Import category "${formattedName}"`,
+    isInflow ? 'Income' : 'Expense'
   );
+
+  const newAcc = {
+    id: Number(info.lastInsertRowid),
+    code: String(nextCode),
+    name: formattedName,
+    type: targetType,
+    subtype: targetSubtype
+  };
+  allAccounts.push(newAcc);
+  return { account: newAcc, created: true };
 }
 
 /**
  * Preview CSV import: parses rows, applies column mapping, checks duplicates,
- * and suggests accounts via Auto-Categorization Rules and CSV columns.
+ * and resolves/auto-creates categories from the CSV's Category column + Auto-Categorization Rules.
  */
 function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
   const allRows = parseCSVText(csvText);
@@ -564,16 +713,17 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
 
   const headers = allRows[0];
   const dataRows = allRows.slice(1);
-  const mapping = customMapping || autoDetectColumns(headers);
+  const mapping = customMapping || autoDetectColumns(headers, dataRows);
 
-  const defaultExpenseAcc = db.prepare("SELECT * FROM accounts WHERE code = '5999'").get() ||
-    db.prepare("SELECT * FROM accounts WHERE type = 'EXPENSE' ORDER BY code ASC LIMIT 1").get() ||
+  const defaultExpenseAcc = db.prepare("SELECT * FROM accounts WHERE code IN ('5990', '5999') ORDER BY code ASC LIMIT 1").get() ||
+    db.prepare("SELECT * FROM accounts WHERE type = 'EXPENSE' ORDER BY code DESC LIMIT 1").get() ||
     db.prepare('SELECT * FROM accounts ORDER BY code ASC LIMIT 1').get();
-  const defaultIncomeAcc = db.prepare("SELECT * FROM accounts WHERE code = '4090'").get() ||
-    db.prepare("SELECT * FROM accounts WHERE type = 'INCOME' ORDER BY code ASC LIMIT 1").get() ||
+  const defaultIncomeAcc = db.prepare("SELECT * FROM accounts WHERE code IN ('4990', '4090') ORDER BY code DESC LIMIT 1").get() ||
+    db.prepare("SELECT * FROM accounts WHERE type = 'INCOME' ORDER BY code DESC LIMIT 1").get() ||
     defaultExpenseAcc;
 
   const allAccounts = db.prepare('SELECT id, code, name, type, subtype FROM accounts WHERE is_active = 1').all();
+  let createdCategoriesCount = 0;
 
   const parsedTransactions = dataRows.map((row, index) => {
     const rawDate = mapping.dateCol >= 0 ? row[mapping.dateCol] : '';
@@ -581,8 +731,8 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
     const description = mapping.descriptionCol >= 0 ? (row[mapping.descriptionCol] || '') : '';
     let payee = mapping.payeeCol >= 0 ? (row[mapping.payeeCol] || '') : '';
     const reference = mapping.referenceCol >= 0 ? (row[mapping.referenceCol] || '') : '';
-    const rawCat = mapping.categoryCol >= 0 ? (row[mapping.categoryCol] || '') : '';
-    const rawAcc = mapping.accountCol !== undefined && mapping.accountCol >= 0 ? (row[mapping.accountCol] || '') : '';
+    const rawCat = mapping.categoryCol >= 0 ? String(row[mapping.categoryCol] || '').trim() : '';
+    const rawAcc = mapping.accountCol !== undefined && mapping.accountCol >= 0 ? String(row[mapping.accountCol] || '').trim() : '';
     const rawType = mapping.typeCol >= 0 ? String(row[mapping.typeCol] || '').toUpperCase() : '';
 
     let signedAmount = 0;
@@ -601,16 +751,18 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
 
     const isInflow = signedAmount > 0;
     const absAmount = round2(Math.abs(signedAmount));
-    const txType = rawType === 'TRANSFER' ? 'TRANSFER' : isInflow ? 'INCOME' : 'EXPENSE';
+    let txType = rawType === 'TRANSFER' ? 'TRANSFER' : isInflow ? 'INCOME' : 'EXPENSE';
 
     // Determine Payment / Primary Account (from CSV Account column if mapped, else selected bankAccountId)
     let paymentAccountId = Number(bankAccountId);
     if (rawAcc) {
       const matchedPayAcc = matchAccountByText(allAccounts, rawAcc);
-      if (matchedPayAcc) paymentAccountId = matchedPayAcc.id;
+      if (matchedPayAcc && ['ASSET', 'LIABILITY', 'EQUITY'].includes(matchedPayAcc.type)) {
+        paymentAccountId = matchedPayAcc.id;
+      }
     }
 
-    // Check Auto-Categorization Rules & CSV Category Column
+    // Check CSV Category Column FIRST (and auto-create category if it's a new category in the CSV), then Auto-Categorization Rules
     const matchedRule = matchCategorizationRule(description, payee, isInflow);
     let categoryAccountId = isInflow ? defaultIncomeAcc.id : defaultExpenseAcc.id;
     let categoryAccountName = isInflow ? `${defaultIncomeAcc.code} - ${defaultIncomeAcc.name}` : `${defaultExpenseAcc.code} - ${defaultExpenseAcc.name}`;
@@ -618,18 +770,22 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
     let isTaxDeductible = 0;
 
     if (rawCat) {
-      const foundAcc = matchAccountByText(allAccounts, rawCat);
+      const { account: foundAcc, created } = getOrCreateCSVCategoryAccount(allAccounts, rawCat, isInflow);
       if (foundAcc) {
         categoryAccountId = foundAcc.id;
         categoryAccountName = `${foundAcc.code} - ${foundAcc.name}`;
-        matchedRuleName = `CSV Column (${foundAcc.code})`;
+        matchedRuleName = created ? `CSV New Category (${foundAcc.code})` : `CSV Category (${foundAcc.code})`;
+        if (created) createdCategoriesCount++;
+        if (['ASSET', 'LIABILITY', 'EQUITY'].includes(foundAcc.type)) {
+          txType = 'TRANSFER';
+        }
       }
     }
 
     if (matchedRule && !matchedRuleName) {
       categoryAccountId = matchedRule.target_account_id;
       categoryAccountName = `${matchedRule.account_code} - ${matchedRule.account_name}`;
-      matchedRuleName = matchedRule.name;
+      matchedRuleName = `Rule: ${matchedRule.name}`;
       isTaxDeductible = matchedRule.is_tax_deductible;
       if (matchedRule.assign_payee && !payee) {
         payee = matchedRule.assign_payee;
@@ -649,12 +805,14 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
       description: description || payee || 'Statement Entry',
       payee,
       reference,
+      csvCategory: rawCat,
       signedAmount: round2(signedAmount),
       absAmount,
       txType,
       paymentAccountId,
       categoryAccountId,
       categoryAccountName,
+      matchedRule: matchedRuleName,
       matchedRuleName,
       isTaxDeductible,
       importHash,
@@ -670,6 +828,8 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
     totalRows: parsedTransactions.length,
     duplicateCount: parsedTransactions.filter((t) => t.isDuplicate).length,
     ruleMatchedCount: parsedTransactions.filter((t) => Boolean(t.matchedRuleName)).length,
+    createdCategoriesCount,
+    accounts: getAccountsWithBalances(),
     transactions: parsedTransactions
   };
 }
