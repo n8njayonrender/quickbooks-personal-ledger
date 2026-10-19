@@ -105,8 +105,11 @@
         <div class="text-[11px] text-slate-400 font-mono truncate">Assets = Liabilities + Equity</div>
         <div class="pt-1 flex gap-1.5">
           <a href="/api/export/transactions.csv" class="flex-1 text-center py-1.5 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition">Export CSV</a>
-          <a href="/api/export/backup.json" class="flex-1 text-center py-1.5 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition">Backup JSON</a>
+          <a href="/api/export/backup.json" onclick="setTimeout(loadBootstrap, 600)" class="flex-1 text-center py-1.5 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition">Backup JSON</a>
         </div>
+        <button onclick="restoreLatestBackup()" class="w-full py-1.5 px-2 rounded bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 text-[11px] font-semibold transition flex items-center justify-center gap-1" title="Restore the latest backup snapshot in one click">
+          <span>&#8634; Restore Latest Backup</span>
+        </button>
       </div>
     </aside>
 
@@ -412,12 +415,42 @@
 
                 <!-- Full Backup Export & Restore -->
                 <div class="pt-4 border-t border-slate-200 space-y-3">
-                  <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Full Accounting Book Backup (.JSON)</h3>
-                  <a href="/api/export/backup.json" class="w-full py-2.5 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center justify-center gap-2 transition">
-                    <span>Download Complete Backup (.JSON)</span>
-                  </a>
-                  <div class="pt-2">
-                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Restore Book from Backup (.JSON):</label>
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Full Accounting Book Backup &amp; Restore</h3>
+                    <span id="latestBackupBadge" class="text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full">Ready</span>
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <a href="/api/export/backup.json" onclick="setTimeout(loadBootstrap, 600)" class="py-2.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center justify-center gap-1.5 transition text-center">
+                      <span>&darr; Download Backup (.JSON)</span>
+                    </a>
+                    <button type="button" onclick="createBackupSnapshot()" class="py-2.5 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-800 font-semibold text-xs flex items-center justify-center gap-1.5 transition">
+                      <span>+ Save Instant Snapshot</span>
+                    </button>
+                  </div>
+
+                  <!-- One-Click Restore Latest Backup -->
+                  <div class="p-3 rounded-xl bg-emerald-50/90 border border-emerald-200 space-y-2">
+                    <div class="flex items-center justify-between gap-2">
+                      <div>
+                        <div class="text-xs font-bold text-emerald-950">One-Click Restore Latest Backup</div>
+                        <div id="latestBackupStatusText" class="text-[11px] text-emerald-700">Restores the most recent backup snapshot created</div>
+                      </div>
+                      <button type="button" onclick="restoreLatestBackup()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-xs shrink-0 transition">
+                        &#8634; Restore Latest Backup
+                      </button>
+                    </div>
+                  </div>
+
+                  <!-- Saved Backup Snapshots History -->
+                  <div class="space-y-1.5">
+                    <div class="text-[11px] font-semibold text-slate-600">Saved Backup Snapshots (In-App History):</div>
+                    <div id="backupSnapshotsList" class="space-y-1.5 max-h-40 overflow-y-auto text-xs"></div>
+                  </div>
+
+                  <!-- Upload External Backup File -->
+                  <div class="pt-2 border-t border-slate-100">
+                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Or Restore from Downloaded Backup File (.JSON):</label>
                     <input type="file" accept=".json,application/json" onchange="handleBackupRestoreFile(event)" class="w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-200 file:text-slate-800 hover:file:bg-slate-300 cursor-pointer" />
                   </div>
                 </div>
@@ -453,7 +486,7 @@
                   <th class="py-3 px-4 text-right">Total Debits</th>
                   <th class="py-3 px-4 text-right">Total Credits</th>
                   <th class="py-3 px-4 text-right">Normal Balance</th>
-                  <th class="py-3 px-4 text-right">General Ledger</th>
+                  <th class="py-3 px-4 text-right">Ledger &amp; Actions</th>
                 </tr>
               </thead>
               <tbody id="coaTableBody" class="divide-y divide-slate-100"></tbody>
@@ -767,12 +800,18 @@
               </form>
 
               <div class="pt-5 border-t border-slate-200 space-y-3">
-                <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Database Controls</h3>
-                <div class="flex flex-wrap gap-3">
-                  <button onclick="resetDemoDatabase()" class="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition">
+                <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Database &amp; Backup Controls</h3>
+                <div class="flex flex-wrap gap-2.5">
+                  <button type="button" onclick="restoreLatestBackup()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs transition">
+                    &#8634; Restore Latest Backup
+                  </button>
+                  <button type="button" onclick="createBackupSnapshot()" class="px-3.5 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold transition">
+                    + Save Backup Snapshot
+                  </button>
+                  <button type="button" onclick="resetDemoDatabase()" class="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition">
                     Restore Default Demo Data
                   </button>
-                  <button onclick="clearAllTransactions()" class="px-3.5 py-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition">
+                  <button type="button" onclick="clearAllTransactions()" class="px-3.5 py-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition">
                     Clear All Transactions (Start Empty Book)
                   </button>
                 </div>
@@ -814,18 +853,19 @@
     </div>
   </div>
 
-  <!-- ================= MODAL 1: NEW SIMPLE TRANSACTION (EXPENSE / INCOME / TRANSFER) ================= -->
+  <!-- ================= MODAL 1: NEW / EDIT SIMPLE TRANSACTION (EXPENSE / INCOME / TRANSFER) ================= -->
   <div id="simpleTxModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden">
       <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
         <div>
-          <h3 class="font-bold text-base">Record Transaction</h3>
-          <p class="text-[11px] text-slate-400">Automatically generates balanced Double-Entry Debits & Credits</p>
+          <h3 id="simpleTxModalTitle" class="font-bold text-base">Record Transaction</h3>
+          <p class="text-[11px] text-slate-400">Automatically generates balanced Double-Entry Debits &amp; Credits</p>
         </div>
         <button onclick="closeModal('simpleTxModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
       </div>
 
       <form onsubmit="submitSimpleTransaction(event)" class="p-6 space-y-4 text-xs">
+        <input type="hidden" id="simpleTxEditId" value="" />
         <!-- Type Switcher -->
         <div class="grid grid-cols-3 gap-2 bg-slate-100 p-1 rounded-xl">
           <button type="button" id="tabBtnExpense" onclick="setSimpleModalType('EXPENSE')" class="py-2 rounded-lg font-bold transition bg-rose-600 text-white shadow-xs">Expense / Money Out</button>
@@ -886,7 +926,7 @@
 
         <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
           <button type="button" onclick="closeModal('simpleTxModal')" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Cancel</button>
-          <button type="submit" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Save & Post to Ledger</button>
+          <button type="submit" id="simpleTxSubmitBtn" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Save &amp; Post to Ledger</button>
         </div>
       </form>
     </div>
@@ -955,14 +995,15 @@
     </div>
   </div>
 
-  <!-- ================= MODAL 3: NEW ACCOUNT (CHART OF ACCOUNTS) ================= -->
+  <!-- ================= MODAL 3: NEW OR EDIT ACCOUNT (CHART OF ACCOUNTS) ================= -->
   <div id="accountModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
       <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
-        <h3 class="font-bold text-base">Add Account to Chart of Accounts</h3>
+        <h3 id="accountModalTitle" class="font-bold text-base">Add Account to Chart of Accounts</h3>
         <button onclick="closeModal('accountModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
       </div>
       <form onsubmit="submitNewAccount(event)" class="p-6 space-y-4 text-xs">
+        <input type="hidden" id="accEditId" value="" />
         <div class="grid grid-cols-3 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Code</label>
@@ -992,15 +1033,20 @@
               <option value="INVESTMENT">INVESTMENT</option>
               <option value="FIXED_ASSET">FIXED_ASSET</option>
               <option value="LOAN">LOAN / MORTGAGE</option>
+              <option value="RECEIVABLE">RECEIVABLE (AR)</option>
+              <option value="PAYABLE">PAYABLE (AP)</option>
               <option value="OPERATING_EXPENSE">OPERATING_EXPENSE</option>
+              <option value="TAX_EXPENSE">TAX_EXPENSE</option>
               <option value="OPERATING_INCOME">OPERATING_INCOME</option>
+              <option value="INVESTMENT_INCOME">INVESTMENT_INCOME</option>
+              <option value="OTHER_INCOME">OTHER_INCOME</option>
               <option value="EQUITY">EQUITY</option>
             </select>
           </div>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block font-semibold text-slate-700 mb-1">Opening Balance ($)</label>
+            <label id="lblAccOpeningBal" class="block font-semibold text-slate-700 mb-1">Opening Balance ($)</label>
             <input type="number" step="0.01" id="accOpeningBal" value="0" class="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono" />
           </div>
           <div>
@@ -1014,7 +1060,7 @@
         </div>
         <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
           <button type="button" onclick="closeModal('accountModal')" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold">Cancel</button>
-          <button type="submit" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">Create Account</button>
+          <button type="submit" id="accountModalSubmitBtn" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">Create Account</button>
         </div>
       </form>
     </div>
@@ -1045,6 +1091,35 @@
           </thead>
           <tbody id="ledgerModalBody" class="divide-y divide-slate-100"></tbody>
         </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 5: DELETE / REASSIGN ACCOUNT CONFIRMATION ================= -->
+  <div id="deleteAccountModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+      <div class="px-6 py-4 bg-rose-600 text-white flex items-center justify-between">
+        <h3 class="font-bold text-base">Delete Account from Chart of Accounts</h3>
+        <button onclick="closeModal('deleteAccountModal')" class="text-white/80 hover:text-white text-lg">&times;</button>
+      </div>
+      <div class="p-6 space-y-4 text-xs">
+        <input type="hidden" id="delAccId" value="" />
+        <div class="p-3 rounded-lg bg-slate-50 border border-slate-200">
+          <div class="text-slate-500 text-[11px]">Selected Account:</div>
+          <div id="delAccTargetLabel" class="font-bold text-sm text-slate-900 mt-0.5"></div>
+          <div id="delAccUsageInfo" class="text-[11px] text-slate-600 mt-1"></div>
+        </div>
+
+        <div id="delAccReassignSection" class="space-y-2">
+          <label class="block font-semibold text-slate-700">How should existing transactions in this account be handled?</label>
+          <select id="delAccReassignSelect" class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white text-xs"></select>
+          <p class="text-[11px] text-slate-500">Choosing a replacement account moves all journal lines, rules, and schedules to that account before deleting. Choosing "Delete associated transactions" removes those entries permanently.</p>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
+          <button type="button" onclick="closeModal('deleteAccountModal')" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold">Cancel</button>
+          <button type="button" onclick="confirmDeleteAccount()" class="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-semibold shadow-sm">Confirm Delete Account</button>
+        </div>
       </div>
     </div>
   </div>

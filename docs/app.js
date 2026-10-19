@@ -14,6 +14,7 @@ let APP = {
   recurring: [],
   rules: [],
   importBatches: [],
+  backups: [],
   activeTab: 'dashboard',
   txViewMode: 'SIMPLE', // 'SIMPLE' or 'JOURNAL'
   coaFilter: 'ALL',
@@ -476,7 +477,8 @@ function renderTransactionsView() {
           <td class="py-3 px-3 text-right font-mono font-bold ${tx.source_type === 'INCOME' ? 'text-emerald-600' : tx.source_type === 'EXPENSE' ? 'text-rose-600' : 'text-slate-900'}">
             ${fmtMoney(tx.total_amount)}
           </td>
-          <td class="py-3 px-3 text-right">
+          <td class="py-3 px-3 text-right whitespace-nowrap">
+            <button onclick="openEditTransactionModal(${tx.id})" class="text-slate-600 hover:text-emerald-600 font-semibold px-1.5 py-1 text-xs" title="Edit Transaction">Edit</button>
             <button onclick="deleteJournalEntry(${tx.id})" class="text-slate-400 hover:text-rose-600 px-1.5 py-1 text-xs" title="Delete Entry">Delete</button>
           </td>
         </tr>
@@ -497,6 +499,7 @@ function renderTransactionsView() {
           </div>
           <div class="flex items-center gap-3">
             <span class="text-[11px] font-mono text-emerald-700 font-semibold">DR = CR (${fmtMoney(tx.total_amount)})</span>
+            <button onclick="openEditTransactionModal(${tx.id})" class="text-slate-700 hover:text-emerald-600 font-semibold hover:underline text-[11px]">Edit</button>
             <button onclick="deleteJournalEntry(${tx.id})" class="text-rose-600 hover:underline text-[11px]">Delete</button>
           </div>
         </div>
@@ -724,6 +727,7 @@ async function commitCSVImport() {
 }
 
 function renderImportExportView() {
+  renderBackupSnapshotsList();
   const list = document.getElementById('importBatchesList');
   if (!APP.importBatches || APP.importBatches.length === 0) {
     list.innerHTML = `<div class="text-slate-400 italic">No CSV batches imported yet. Click "Try Instant Sample Statement" above to test!</div>`;
@@ -744,6 +748,100 @@ function renderImportExportView() {
   `).join('');
 }
 
+function renderBackupSnapshotsList() {
+  const backups = APP.backups || [];
+  const badge = document.getElementById('latestBackupBadge');
+  const statusText = document.getElementById('latestBackupStatusText');
+  const listEl = document.getElementById('backupSnapshotsList');
+
+  if (backups.length > 0) {
+    const latest = backups[0];
+    if (badge) {
+      badge.textContent = `${backups.length} Saved`;
+      badge.className = 'text-[10px] font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-full';
+    }
+    if (statusText) {
+      statusText.textContent = `Latest: ${latest.label} (${latest.created_at}) — ${latest.account_count} accts, ${latest.entry_count} entries`;
+    }
+    if (listEl) {
+      listEl.innerHTML = backups.map((b, idx) => `
+        <div class="p-2.5 rounded-lg border ${idx === 0 ? 'bg-emerald-50/40 border-emerald-200' : 'bg-slate-50 border-slate-200'} flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="font-semibold text-slate-800 truncate flex items-center gap-1.5">
+              ${idx === 0 ? '<span class="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] uppercase font-bold">Latest</span>' : ''}
+              <span>${escapeHtml(b.label)}</span>
+            </div>
+            <div class="text-[10px] text-slate-500 font-mono">${escapeHtml(b.created_at)} &bull; ${b.account_count} accounts &bull; ${b.entry_count} journal entries</div>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button type="button" onclick="restoreBackupSnapshotById(${b.id})" class="px-2.5 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-[11px] transition">
+              Restore
+            </button>
+            <button type="button" onclick="deleteBackupSnapshotById(${b.id})" class="px-1.5 py-1 text-slate-400 hover:text-rose-600 text-xs" title="Remove snapshot">&times;</button>
+          </div>
+        </div>
+      `).join('');
+    }
+  } else {
+    if (badge) {
+      badge.textContent = 'No Snapshot Yet';
+      badge.className = 'text-[10px] font-mono text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-full';
+    }
+    if (statusText) {
+      statusText.textContent = 'Click "Download Backup (.JSON)" or "+ Save Instant Snapshot" to create your first restore point';
+    }
+    if (listEl) {
+      listEl.innerHTML = `<div class="text-[11px] text-slate-400 italic py-1">No saved backup snapshots yet.</div>`;
+    }
+  }
+}
+
+async function createBackupSnapshot() {
+  try {
+    const label = `Manual Backup (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`;
+    await apiFetch('/api/backups/create', {
+      method: 'POST',
+      body: JSON.stringify({ label })
+    });
+    showToast('Backup snapshot saved! You can restore it anytime in 1 click.');
+    await loadBootstrap();
+  } catch (err) {
+    showToast('Failed to save backup snapshot: ' + err.message, 'error');
+  }
+}
+
+async function restoreLatestBackup() {
+  try {
+    const res = await apiFetch('/api/backups/restore-latest', { method: 'POST' });
+    const snap = res.restoredSnapshot || res;
+    showToast(`Restored latest backup: ${snap.label || 'Snapshot'} (${snap.created_at || 'just now'})!`);
+    await loadBootstrap();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function restoreBackupSnapshotById(snapshotId) {
+  try {
+    const res = await apiFetch(`/api/backups/${snapshotId}/restore`, { method: 'POST' });
+    const snap = res.restoredSnapshot || res;
+    showToast(`Restored backup snapshot: ${snap.label || 'Snapshot'}!`);
+    await loadBootstrap();
+  } catch (err) {
+    showToast('Restore failed: ' + err.message, 'error');
+  }
+}
+
+async function deleteBackupSnapshotById(snapshotId) {
+  try {
+    await apiFetch(`/api/backups/${snapshotId}`, { method: 'DELETE' });
+    showToast('Backup snapshot removed');
+    await loadBootstrap();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
 async function handleBackupRestoreFile(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -754,7 +852,8 @@ async function handleBackupRestoreFile(event) {
       method: 'POST',
       body: JSON.stringify(json)
     });
-    showToast('Full accounting database restored from backup!');
+    showToast('Full accounting database restored from backup file!');
+    event.target.value = '';
     await loadBootstrap();
   } catch (err) {
     showToast('Backup restore failed: ' + err.message, 'error');
@@ -787,7 +886,10 @@ function renderCOAView() {
     <tr class="hover:bg-slate-50">
       <td class="py-3 px-4 font-mono font-bold text-slate-900">${escapeHtml(a.code)}</td>
       <td class="py-3 px-4">
-        <div class="font-semibold text-slate-900">${escapeHtml(a.name)}</div>
+        <div class="font-semibold text-slate-900 flex items-center gap-1.5">
+          <span>${escapeHtml(a.name)}</span>
+          ${!a.is_system ? '<span class="px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 text-[9px] font-semibold">Custom</span>' : ''}
+        </div>
         <div class="text-[11px] text-slate-400">${escapeHtml(a.description || '')}</div>
       </td>
       <td class="py-3 px-4">
@@ -798,10 +900,18 @@ function renderCOAView() {
       <td class="py-3 px-4 text-right font-mono text-slate-600">${fmtMoney(a.total_debit)}</td>
       <td class="py-3 px-4 text-right font-mono text-slate-600">${fmtMoney(a.total_credit)}</td>
       <td class="py-3 px-4 text-right font-mono font-bold text-slate-900">${fmtMoney(a.balance)}</td>
-      <td class="py-3 px-4 text-right">
-        <button onclick="openAccountLedgerModal(${a.id})" class="px-2.5 py-1 rounded bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 font-semibold text-[11px] transition">
-          View Ledger (${a.line_count})
-        </button>
+      <td class="py-3 px-4 text-right whitespace-nowrap">
+        <div class="inline-flex items-center gap-1.5">
+          <button onclick="openAccountLedgerModal(${a.id})" class="px-2.5 py-1 rounded bg-slate-100 hover:bg-emerald-600 hover:text-white text-slate-700 font-semibold text-[11px] transition">
+            Ledger (${a.line_count})
+          </button>
+          <button onclick="openEditAccountModal(${a.id})" class="px-2.5 py-1 rounded border border-slate-300 hover:border-slate-800 hover:bg-slate-900 hover:text-white text-slate-700 font-semibold text-[11px] transition" title="Edit Account Code, Name, Type, or Balance">
+            Edit
+          </button>
+          <button onclick="openDeleteAccountModal(${a.id})" class="px-2.5 py-1 rounded border border-rose-200 bg-rose-50/70 hover:bg-rose-600 hover:text-white text-rose-700 font-semibold text-[11px] transition" title="Delete or Reassign Account">
+            Delete
+          </button>
+        </div>
       </td>
     </tr>
   `).join('');
@@ -1668,7 +1778,67 @@ function closeModal(id) {
 }
 
 function openNewTransactionModal(type = 'EXPENSE') {
+  document.getElementById('simpleTxEditId').value = '';
+  document.getElementById('simpleTxModalTitle').textContent = 'Record Transaction';
+  document.getElementById('simpleTxSubmitBtn').textContent = 'Save & Post to Ledger';
+  document.getElementById('simpleTxAmount').value = '';
+  document.getElementById('simpleTxPayee').value = '';
+  document.getElementById('simpleTxRef').value = '';
+  document.getElementById('simpleTxMemo').value = '';
+  document.getElementById('simpleTxTaxDeductible').checked = false;
   setSimpleModalType(type);
+  openModal('simpleTxModal');
+}
+
+function openEditTransactionModal(entryId) {
+  const tx = APP.transactions.find((t) => t.id === Number(entryId));
+  if (!tx) return;
+
+  document.getElementById('simpleTxEditId').value = String(tx.id);
+  document.getElementById('simpleTxModalTitle').textContent = `Edit Transaction (${tx.entry_number})`;
+  document.getElementById('simpleTxSubmitBtn').textContent = 'Update Transaction';
+
+  let modalType = 'EXPENSE';
+  if (tx.source_type === 'INCOME') modalType = 'INCOME';
+  else if (tx.source_type === 'TRANSFER') modalType = 'TRANSFER';
+  else if (tx.signed_impact > 0 && tx.lines.some((l) => l.account_type === 'INCOME')) modalType = 'INCOME';
+
+  setSimpleModalType(modalType);
+
+  document.getElementById('simpleTxDate').value = tx.date || '2026-10-19';
+  document.getElementById('simpleTxAmount').value = Number(tx.total_amount || 0).toFixed(2);
+  document.getElementById('simpleTxPayee').value = tx.payee || '';
+  document.getElementById('simpleTxRef').value = tx.reference || '';
+  document.getElementById('simpleTxMemo').value = tx.memo || '';
+  document.getElementById('simpleTxCurrency').value = tx.currency || APP.settings.base_currency || 'USD';
+  document.getElementById('simpleTxRate').value = Number(tx.exchange_rate || 1);
+  document.getElementById('simpleTxTaxDeductible').checked = Boolean(tx.is_tax_deductible);
+
+  // Set payment and category account dropdowns
+  const paySelect = document.getElementById('simpleTxPaymentAccount');
+  const catSelect = document.getElementById('simpleTxCategoryAccount');
+
+  // Ensure primary_account_id and category_account_id exist in options
+  if (tx.primary_account_id) {
+    if (![...paySelect.options].some((o) => Number(o.value) === Number(tx.primary_account_id))) {
+      const pAcc = APP.accounts.find((a) => a.id === Number(tx.primary_account_id));
+      if (pAcc) {
+        paySelect.insertAdjacentHTML('beforeend', `<option value="${pAcc.id}">${escapeHtml(pAcc.code)} - ${escapeHtml(pAcc.name)}</option>`);
+      }
+    }
+    paySelect.value = String(tx.primary_account_id);
+  }
+
+  if (tx.category_account_id) {
+    if (![...catSelect.options].some((o) => Number(o.value) === Number(tx.category_account_id))) {
+      const cAcc = APP.accounts.find((a) => a.id === Number(tx.category_account_id));
+      if (cAcc) {
+        catSelect.insertAdjacentHTML('beforeend', `<option value="${cAcc.id}">${escapeHtml(cAcc.code)} - ${escapeHtml(cAcc.name)}</option>`);
+      }
+    }
+    catSelect.value = String(tx.category_account_id);
+  }
+
   openModal('simpleTxModal');
 }
 
@@ -1721,27 +1891,40 @@ function updateSimpleModalExchangeRate() {
 async function submitSimpleTransaction(event) {
   event.preventDefault();
   try {
-    await apiFetch('/api/transactions/simple', {
-      method: 'POST',
-      body: JSON.stringify({
-        tx_type: document.getElementById('simpleTxType').value,
-        date: document.getElementById('simpleTxDate').value,
-        amount: parseFloat(document.getElementById('simpleTxAmount').value),
-        payment_account_id: Number(document.getElementById('simpleTxPaymentAccount').value),
-        category_account_id: Number(document.getElementById('simpleTxCategoryAccount').value),
-        payee: document.getElementById('simpleTxPayee').value,
-        reference: document.getElementById('simpleTxRef').value,
-        memo: document.getElementById('simpleTxMemo').value,
-        currency: document.getElementById('simpleTxCurrency').value,
-        exchange_rate: parseFloat(document.getElementById('simpleTxRate').value || '1'),
-        is_tax_deductible: document.getElementById('simpleTxTaxDeductible').checked ? 1 : 0
-      })
-    });
+    const editId = document.getElementById('simpleTxEditId').value;
+    const payload = {
+      tx_type: document.getElementById('simpleTxType').value,
+      date: document.getElementById('simpleTxDate').value,
+      amount: parseFloat(document.getElementById('simpleTxAmount').value),
+      payment_account_id: Number(document.getElementById('simpleTxPaymentAccount').value),
+      category_account_id: Number(document.getElementById('simpleTxCategoryAccount').value),
+      payee: document.getElementById('simpleTxPayee').value,
+      reference: document.getElementById('simpleTxRef').value,
+      memo: document.getElementById('simpleTxMemo').value,
+      currency: document.getElementById('simpleTxCurrency').value,
+      exchange_rate: parseFloat(document.getElementById('simpleTxRate').value || '1'),
+      is_tax_deductible: document.getElementById('simpleTxTaxDeductible').checked ? 1 : 0
+    };
+
+    if (editId) {
+      await apiFetch(`/api/transactions/simple/${editId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      showToast('Transaction updated in General Ledger!');
+    } else {
+      await apiFetch('/api/transactions/simple', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      showToast('Transaction recorded with balanced Debits & Credits!');
+    }
+
     closeModal('simpleTxModal');
+    document.getElementById('simpleTxEditId').value = '';
     document.getElementById('simpleTxAmount').value = '';
     document.getElementById('simpleTxPayee').value = '';
     document.getElementById('simpleTxMemo').value = '';
-    showToast('Transaction recorded with balanced Debits & Credits!');
     await loadBootstrap();
   } catch (err) {
     showToast(err.message, 'error');
@@ -1845,29 +2028,135 @@ async function submitJournalEntryModal(event) {
   }
 }
 
-// New Account Modal
+// New / Edit Account Modal
 function openAccountModal() {
+  document.getElementById('accEditId').value = '';
+  document.getElementById('accountModalTitle').textContent = 'Add Account to Chart of Accounts';
+  document.getElementById('accountModalSubmitBtn').textContent = 'Create Account';
+  document.getElementById('lblAccOpeningBal').textContent = 'Opening Balance ($)';
+  document.getElementById('accCode').value = '';
+  document.getElementById('accName').value = '';
+  document.getElementById('accType').value = 'ASSET';
+  document.getElementById('accSubtype').value = 'BANK';
+  document.getElementById('accOpeningBal').value = '0';
+  document.getElementById('accTaxCat').value = '';
+  document.getElementById('accDesc').value = '';
+  openModal('accountModal');
+}
+
+function openEditAccountModal(accountId) {
+  const acc = APP.accounts.find((a) => a.id === Number(accountId));
+  if (!acc) return;
+
+  document.getElementById('accEditId').value = String(acc.id);
+  document.getElementById('accountModalTitle').textContent = `Edit Account (${acc.code} — ${acc.name})`;
+  document.getElementById('accountModalSubmitBtn').textContent = 'Save Account Changes';
+  document.getElementById('lblAccOpeningBal').textContent = 'Current / Target Balance ($)';
+
+  document.getElementById('accCode').value = acc.code || '';
+  document.getElementById('accName').value = acc.name || '';
+  document.getElementById('accType').value = acc.type || 'ASSET';
+
+  const subSelect = document.getElementById('accSubtype');
+  if (acc.subtype && ![...subSelect.options].some((o) => o.value === acc.subtype)) {
+    subSelect.insertAdjacentHTML('beforeend', `<option value="${escapeHtml(acc.subtype)}">${escapeHtml(acc.subtype)}</option>`);
+  }
+  subSelect.value = acc.subtype || 'BANK';
+
+  document.getElementById('accOpeningBal').value = Number(acc.balance || 0).toFixed(2);
+  document.getElementById('accTaxCat').value = acc.tax_category || '';
+  document.getElementById('accDesc').value = acc.description || '';
+
   openModal('accountModal');
 }
 
 async function submitNewAccount(event) {
   event.preventDefault();
   try {
-    await apiFetch('/api/accounts', {
-      method: 'POST',
-      body: JSON.stringify({
-        code: document.getElementById('accCode').value,
-        name: document.getElementById('accName').value,
-        type: document.getElementById('accType').value,
-        subtype: document.getElementById('accSubtype').value,
-        opening_balance: parseFloat(document.getElementById('accOpeningBal').value || '0'),
-        tax_category: document.getElementById('accTaxCat').value,
-        description: document.getElementById('accDesc').value
-      })
-    });
+    const editId = document.getElementById('accEditId').value;
+    const payload = {
+      code: document.getElementById('accCode').value.trim(),
+      name: document.getElementById('accName').value.trim(),
+      type: document.getElementById('accType').value,
+      subtype: document.getElementById('accSubtype').value,
+      opening_balance: parseFloat(document.getElementById('accOpeningBal').value || '0'),
+      tax_category: document.getElementById('accTaxCat').value.trim(),
+      description: document.getElementById('accDesc').value.trim()
+    };
+
+    if (editId) {
+      await apiFetch(`/api/accounts/${editId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      showToast(`Account "${payload.code} - ${payload.name}" updated!`);
+    } else {
+      await apiFetch('/api/accounts', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      showToast(`Account "${payload.code} - ${payload.name}" added to Chart of Accounts!`);
+    }
+
     closeModal('accountModal');
+    document.getElementById('accEditId').value = '';
     event.target.reset();
-    showToast('Account added to Chart of Accounts!');
+    await loadBootstrap();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function openDeleteAccountModal(accountId) {
+  const acc = APP.accounts.find((a) => a.id === Number(accountId));
+  if (!acc) return;
+
+  document.getElementById('delAccId').value = String(acc.id);
+  document.getElementById('delAccTargetLabel').textContent = `${acc.code} — ${acc.name} (${acc.type})`;
+
+  const lineCount = Number(acc.line_count || 0);
+  const usageEl = document.getElementById('delAccUsageInfo');
+  const reassignSection = document.getElementById('delAccReassignSection');
+  const reassignSelect = document.getElementById('delAccReassignSelect');
+
+  const otherAccounts = APP.accounts
+    .filter((a) => a.id !== acc.id)
+    .sort((a, b) => {
+      if (a.type === acc.type && b.type !== acc.type) return -1;
+      if (a.type !== acc.type && b.type === acc.type) return 1;
+      return String(a.code).localeCompare(String(b.code));
+    });
+
+  reassignSelect.innerHTML =
+    `<option value="">Delete account and remove its ${lineCount} associated journal line(s)</option>` +
+    otherAccounts.map((o) => `<option value="${o.id}">Reassign transactions &amp; rules to: ${escapeHtml(o.code)} - ${escapeHtml(o.name)} (${o.type})</option>`).join('');
+
+  if (lineCount > 0) {
+    usageEl.innerHTML = `Current Balance: <strong class="font-mono">${fmtMoney(acc.balance)}</strong> &bull; Used in <strong>${lineCount}</strong> ledger line(s).`;
+    reassignSection.classList.remove('hidden');
+  } else {
+    usageEl.textContent = 'This account has 0 transactions and can be deleted cleanly.';
+    reassignSection.classList.add('hidden');
+    reassignSelect.value = '';
+  }
+
+  openModal('deleteAccountModal');
+}
+
+async function confirmDeleteAccount() {
+  try {
+    const accId = Number(document.getElementById('delAccId').value);
+    if (!accId) return;
+    const targetAcc = APP.accounts.find((a) => a.id === accId);
+    const reassignTo = document.getElementById('delAccReassignSelect').value;
+    const url = reassignTo
+      ? `/api/accounts/${accId}?reassignTo=${encodeURIComponent(reassignTo)}`
+      : `/api/accounts/${accId}`;
+
+    const res = await apiFetch(url, { method: 'DELETE' });
+    const delInfo = res.deleted || targetAcc || { code: '', name: 'Account' };
+    closeModal('deleteAccountModal');
+    showToast(`Deleted account "${delInfo.code} - ${delInfo.name}" from Chart of Accounts!`);
     await loadBootstrap();
   } catch (err) {
     showToast(err.message, 'error');

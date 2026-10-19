@@ -155,13 +155,18 @@ app.get('/api/bootstrap', (req, res) => {
     const currencies = db.prepare('SELECT * FROM currencies ORDER BY code ASC').all();
     const accounts = getAccountsWithBalances();
 
-    const today = '2026-10-31';
-    const yearStart = '2026-01-01';
-    const currentMonthStart = '2026-10-01';
+    const dateBounds = db.prepare('SELECT MIN(date) AS minDate, MAX(date) AS maxDate FROM journal_entries').get();
+    const latestTxDate = dateBounds && dateBounds.maxDate ? dateBounds.maxDate : new Date().toISOString().slice(0, 10);
+    const activeYear = latestTxDate.slice(0, 4);
+    const activeMonth = latestTxDate.slice(0, 7);
+    const today = `${activeYear}-12-31`;
+    const yearStart = `${activeYear}-01-01`;
+    const currentMonthStart = `${activeMonth}-01`;
+    const currentMonthEnd = `${activeMonth}-31`;
 
     const bs = getBalanceSheet(today);
     const ytdPnl = getProfitAndLoss(yearStart, today);
-    const monthPnl = getProfitAndLoss(currentMonthStart, today);
+    const monthPnl = getProfitAndLoss(currentMonthStart, currentMonthEnd);
     const monthlyTrends = getMonthlyTrends();
     const transactions = getEnrichedTransactions({ limit: 300 });
 
@@ -235,6 +240,22 @@ app.get('/api/bootstrap', (req, res) => {
       LIMIT 25
     `).all();
 
+    let backups = db.prepare(`
+      SELECT id, label, account_count, entry_count, created_at
+      FROM backup_snapshots
+      ORDER BY id DESC
+      LIMIT 15
+    `).all();
+    if (backups.length === 0) {
+      saveSnapshotToDb('Initial Ledger Snapshot');
+      backups = db.prepare(`
+        SELECT id, label, account_count, entry_count, created_at
+        FROM backup_snapshots
+        ORDER BY id DESC
+        LIMIT 15
+      `).all();
+    }
+
     const cashAccounts = accounts.filter((a) => a.type === 'ASSET' && a.subtype === 'BANK');
     const totalLiquidCash = round2(cashAccounts.reduce((s, a) => s + a.balance, 0));
     const creditCardAccounts = accounts.filter((a) => a.type === 'LIABILITY' && a.subtype === 'CREDIT_CARD');
@@ -268,18 +289,33 @@ app.get('/api/bootstrap', (req, res) => {
       invoicesBills,
       recurring,
       rules,
-      importBatches
+      importBatches,
+      backups
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// 2. CREATE SIMPLE TRANSACTION (HYBRID MODE)
+// 2. CREATE OR UPDATE SIMPLE TRANSACTION (HYBRID MODE)
 app.post('/api/transactions/simple', (req, res) => {
   try {
     const entryId = createSimpleTransaction(req.body);
     res.json({ ok: true, entryId });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/transactions/simple/:id', (req, res) => {
+  try {
+    const entryId = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(entryId);
+    if (!existing) throw new Error('Transaction not found.');
+
+    const newEntryId = createSimpleTransaction(req.body);
+    db.prepare('DELETE FROM journal_entries WHERE id = ?').run(entryId);
+    res.json({ ok: true, entryId: newEntryId });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -406,6 +442,138 @@ app.post('/api/accounts', (req, res) => {
     }
 
     res.json({ ok: true, accountId: newAccId });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/accounts/:id', (req, res) => {
+  try {
+    const accountId = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId);
+    if (!existing) throw new Error('Account not found.');
+
+    const {
+      code = existing.code,
+      name = existing.name,
+      type = existing.type,
+      subtype = existing.subtype,
+      currency = existing.currency,
+      description = existing.description,
+      tax_category = existing.tax_category,
+      opening_balance
+    } = req.body;
+
+    if (!String(code).trim() || !String(name).trim() || !type) {
+      throw new Error('Account code, name, and type are required.');
+    }
+
+    db.prepare(`
+      UPDATE accounts
+      SET code = ?, name = ?, type = ?, subtype = ?, currency = ?, description = ?, tax_category = ?
+      WHERE id = ?
+    `).run(
+      String(code).trim(),
+      String(name).trim(),
+      type,
+      subtype || type,
+      currency || 'USD',
+      description ?? '',
+      tax_category ?? '',
+      accountId
+    );
+
+    if (opening_balance !== undefined && opening_balance !== null && opening_balance !== '') {
+      const currentAcc = getAccountsWithBalances().find((a) => a.id === accountId);
+      const currentBal = currentAcc ? currentAcc.balance : 0;
+      const targetBal = round2(Number(opening_balance) || 0);
+      const delta = round2(targetBal - currentBal);
+      if (Math.abs(delta) >= 0.01) {
+        const openEquity = db.prepare("SELECT * FROM accounts WHERE code = '3010' AND id != ?").get(accountId) ||
+                           db.prepare("SELECT * FROM accounts WHERE type = 'EQUITY' AND id != ? LIMIT 1").get(accountId);
+        if (openEquity) {
+          const isDebitNormal = type === 'ASSET' || type === 'EXPENSE';
+          const increaseNormal = delta > 0;
+          const debitTarget = (isDebitNormal && increaseNormal) || (!isDebitNormal && !increaseNormal);
+          const absDelta = Math.abs(delta);
+          const lines = debitTarget
+            ? [
+                { account_id: accountId, description: 'Balance Adjustment', debit: absDelta, credit: 0 },
+                { account_id: openEquity.id, description: `Balance Adjustment for ${name}`, debit: 0, credit: absDelta }
+              ]
+            : [
+                { account_id: openEquity.id, description: `Balance Adjustment for ${name}`, debit: absDelta, credit: 0 },
+                { account_id: accountId, description: 'Balance Adjustment', debit: 0, credit: absDelta }
+              ];
+          createJournalEntry({
+            date: new Date().toISOString().slice(0, 10),
+            memo: `Balance Adjustment for ${code} - ${name}`,
+            payee: 'Balance Adjustment',
+            source_type: 'OPENING_BALANCE',
+            lines
+          });
+        }
+      }
+    }
+
+    res.json({ ok: true, accountId });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/accounts/:id', (req, res) => {
+  try {
+    const accountId = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM accounts WHERE id = ?').get(accountId);
+    if (!existing) throw new Error('Account not found.');
+
+    const totalAccounts = db.prepare('SELECT COUNT(*) AS c FROM accounts').get().c;
+    if (totalAccounts <= 1) {
+      throw new Error('Cannot delete the last remaining account in the Chart of Accounts.');
+    }
+
+    const reassignId = req.query.reassignTo ? Number(req.query.reassignTo) : null;
+
+    db.exec('PRAGMA foreign_keys = OFF;');
+    db.exec('BEGIN');
+    try {
+      if (reassignId && reassignId !== accountId) {
+        db.prepare('UPDATE journal_lines SET account_id = ? WHERE account_id = ?').run(reassignId, accountId);
+        db.prepare('UPDATE categorization_rules SET target_account_id = ? WHERE target_account_id = ?').run(reassignId, accountId);
+        db.prepare('UPDATE invoices_bills SET category_account_id = ? WHERE category_account_id = ?').run(reassignId, accountId);
+        db.prepare('UPDATE invoices_bills SET ar_ap_account_id = ? WHERE ar_ap_account_id = ?').run(reassignId, accountId);
+        db.prepare('UPDATE recurring_transactions SET payment_account_id = ? WHERE payment_account_id = ?').run(reassignId, accountId);
+        db.prepare('UPDATE recurring_transactions SET category_account_id = ? WHERE category_account_id = ?').run(reassignId, accountId);
+      } else {
+        // Delete journal entries that contain lines referencing this account so double-entry stays balanced
+        const affectedEntries = db.prepare('SELECT DISTINCT journal_entry_id FROM journal_lines WHERE account_id = ?').all(accountId);
+        const delLines = db.prepare('DELETE FROM journal_lines WHERE journal_entry_id = ?');
+        const delEntry = db.prepare('DELETE FROM journal_entries WHERE id = ?');
+        for (const row of affectedEntries) {
+          delLines.run(row.journal_entry_id);
+          delEntry.run(row.journal_entry_id);
+        }
+        db.prepare('DELETE FROM categorization_rules WHERE target_account_id = ?').run(accountId);
+        db.prepare('DELETE FROM invoices_bills WHERE category_account_id = ? OR ar_ap_account_id = ?').run(accountId, accountId);
+        db.prepare('DELETE FROM recurring_transactions WHERE payment_account_id = ? OR category_account_id = ?').run(accountId, accountId);
+      }
+
+      db.prepare('DELETE FROM budgets WHERE account_id = ?').run(accountId);
+      db.prepare('UPDATE savings_goals SET linked_account_id = NULL WHERE linked_account_id = ?').run(accountId);
+      db.prepare('DELETE FROM reconciliations WHERE account_id = ?').run(accountId);
+      db.prepare('DELETE FROM import_batches WHERE account_id = ?').run(accountId);
+      db.prepare('DELETE FROM accounts WHERE id = ?').run(accountId);
+
+      db.exec('COMMIT');
+    } catch (inner) {
+      db.exec('ROLLBACK');
+      throw inner;
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON;');
+    }
+
+    res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -1245,24 +1413,150 @@ app.get('/api/export/report.csv', (req, res) => {
   }
 });
 
-// Full JSON Database Backup Export & Restore
+// Full JSON Database Backup Export, Snapshot History & One-Click Restore Latest
+function buildBackupObject() {
+  return {
+    exported_at: new Date().toISOString(),
+    version: '1.1.0',
+    settings: db.prepare('SELECT * FROM settings').all(),
+    currencies: db.prepare('SELECT * FROM currencies').all(),
+    accounts: db.prepare('SELECT * FROM accounts').all(),
+    journal_entries: db.prepare('SELECT * FROM journal_entries').all(),
+    journal_lines: db.prepare('SELECT * FROM journal_lines').all(),
+    categorization_rules: db.prepare('SELECT * FROM categorization_rules').all(),
+    budgets: db.prepare('SELECT * FROM budgets').all(),
+    savings_goals: db.prepare('SELECT * FROM savings_goals').all(),
+    invoices_bills: db.prepare('SELECT * FROM invoices_bills').all(),
+    recurring_transactions: db.prepare('SELECT * FROM recurring_transactions').all(),
+    reconciliations: db.prepare('SELECT * FROM reconciliations').all()
+  };
+}
+
+function saveSnapshotToDb(label = 'Manual Backup') {
+  const backup = buildBackupObject();
+  const res = db.prepare(`
+    INSERT INTO backup_snapshots (label, account_count, entry_count, payload_json)
+    VALUES (?, ?, ?, ?)
+  `).run(
+    label,
+    backup.accounts.length,
+    backup.journal_entries.length,
+    JSON.stringify(backup)
+  );
+  // Keep latest 15 snapshots
+  db.exec(`
+    DELETE FROM backup_snapshots
+    WHERE id NOT IN (SELECT id FROM backup_snapshots ORDER BY id DESC LIMIT 15);
+  `);
+  return {
+    id: Number(res.lastInsertRowid),
+    label,
+    account_count: backup.accounts.length,
+    entry_count: backup.journal_entries.length,
+    backup
+  };
+}
+
+function restoreFromBackupObject(data) {
+  if (!data || !Array.isArray(data.accounts) || !Array.isArray(data.journal_entries)) {
+    throw new Error('Invalid backup JSON data.');
+  }
+
+  db.exec('PRAGMA foreign_keys = OFF;');
+  db.exec('BEGIN');
+  try {
+    const tables = [
+      'journal_lines', 'journal_entries', 'categorization_rules',
+      'budgets', 'savings_goals', 'invoices_bills',
+      'recurring_transactions', 'reconciliations', 'import_batches',
+      'accounts', 'currencies', 'settings'
+    ];
+    for (const t of tables) {
+      db.exec(`DELETE FROM ${t};`);
+    }
+
+    if (Array.isArray(data.settings)) {
+      const sStmt = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
+      for (const r of data.settings) sStmt.run(r.key, r.value);
+    }
+    if (Array.isArray(data.currencies)) {
+      const cStmt = db.prepare('INSERT INTO currencies (code, name, symbol, exchange_rate) VALUES (?, ?, ?, ?)');
+      for (const r of data.currencies) cStmt.run(r.code, r.name, r.symbol, r.exchange_rate);
+    }
+    for (const a of data.accounts) {
+      db.prepare(`
+        INSERT INTO accounts (id, code, name, type, subtype, currency, description, tax_category, is_system, is_active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(a.id, a.code, a.name, a.type, a.subtype, a.currency || 'USD', a.description || '', a.tax_category || '', a.is_system || 0, a.is_active ?? 1);
+    }
+    for (const je of data.journal_entries) {
+      db.prepare(`
+        INSERT INTO journal_entries (id, entry_number, date, memo, payee, reference, source_type, currency, exchange_rate, is_tax_deductible, import_batch_id, import_hash)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(je.id, je.entry_number, je.date, je.memo || '', je.payee || '', je.reference || '', je.source_type || 'JOURNAL', je.currency || 'USD', je.exchange_rate || 1, je.is_tax_deductible || 0, je.import_batch_id || null, je.import_hash || null);
+    }
+    if (Array.isArray(data.journal_lines)) {
+      for (const jl of data.journal_lines) {
+        db.prepare(`
+          INSERT INTO journal_lines (id, journal_entry_id, account_id, description, debit, credit, foreign_amount, reconciled_status, reconciliation_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(jl.id, jl.journal_entry_id, jl.account_id, jl.description || '', jl.debit || 0, jl.credit || 0, jl.foreign_amount || 0, jl.reconciled_status || 'UNRECONCILED', jl.reconciliation_id || null);
+      }
+    }
+    if (Array.isArray(data.categorization_rules)) {
+      for (const r of data.categorization_rules) {
+        db.prepare(`
+          INSERT INTO categorization_rules (id, name, priority, match_field, match_type, match_value, transaction_type, target_account_id, assign_payee, is_tax_deductible, is_active)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(r.id, r.name, r.priority, r.match_field, r.match_type, r.match_value, r.transaction_type, r.target_account_id, r.assign_payee || '', r.is_tax_deductible || 0, r.is_active ?? 1);
+      }
+    }
+    if (Array.isArray(data.budgets)) {
+      for (const b of data.budgets) {
+        db.prepare('INSERT INTO budgets (id, account_id, monthly_amount, notes) VALUES (?, ?, ?, ?)').run(b.id, b.account_id, b.monthly_amount, b.notes || '');
+      }
+    }
+    if (Array.isArray(data.savings_goals)) {
+      for (const g of data.savings_goals) {
+        db.prepare('INSERT INTO savings_goals (id, name, target_amount, current_amount, linked_account_id, target_date, color, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(g.id, g.name, g.target_amount, g.current_amount, g.linked_account_id, g.target_date || '', g.color || '#10b981', g.notes || '');
+      }
+    }
+    if (Array.isArray(data.invoices_bills)) {
+      for (const ib of data.invoices_bills) {
+        db.prepare(`
+          INSERT INTO invoices_bills (id, doc_type, doc_number, contact_name, contact_email, issue_date, due_date, status, currency, exchange_rate, total_amount, category_account_id, ar_ap_account_id, payment_account_id, paid_date, accrual_journal_entry_id, payment_journal_entry_id, line_items_json, notes)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(ib.id, ib.doc_type, ib.doc_number, ib.contact_name, ib.contact_email || '', ib.issue_date, ib.due_date, ib.status || 'OPEN', ib.currency || 'USD', ib.exchange_rate || 1, ib.total_amount || 0, ib.category_account_id, ib.ar_ap_account_id, ib.payment_account_id || null, ib.paid_date || null, ib.accrual_journal_entry_id || null, ib.payment_journal_entry_id || null, ib.line_items_json || '[]', ib.notes || '');
+      }
+    }
+    if (Array.isArray(data.recurring_transactions)) {
+      for (const rt of data.recurring_transactions) {
+        db.prepare(`
+          INSERT INTO recurring_transactions (id, name, tx_type, frequency, next_date, amount, currency, payment_account_id, category_account_id, payee, memo, is_tax_deductible, is_active, last_run_date)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(rt.id, rt.name, rt.tx_type, rt.frequency, rt.next_date, rt.amount, rt.currency || 'USD', rt.payment_account_id, rt.category_account_id, rt.payee || '', rt.memo || '', rt.is_tax_deductible || 0, rt.is_active ?? 1, rt.last_run_date || '');
+      }
+    }
+    db.exec('COMMIT');
+  } catch (innerErr) {
+    db.exec('ROLLBACK');
+    throw innerErr;
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON;');
+  }
+}
+
+// Ensure at least one initial snapshot exists on startup
+try {
+  const snapCount = db.prepare('SELECT COUNT(*) AS c FROM backup_snapshots').get().c;
+  if (snapCount === 0) {
+    saveSnapshotToDb('Initial Ledger Snapshot');
+  }
+} catch (_) {}
+
 app.get('/api/export/backup.json', (req, res) => {
   try {
-    const backup = {
-      exported_at: new Date().toISOString(),
-      version: '1.0.0',
-      settings: db.prepare('SELECT * FROM settings').all(),
-      currencies: db.prepare('SELECT * FROM currencies').all(),
-      accounts: db.prepare('SELECT * FROM accounts').all(),
-      journal_entries: db.prepare('SELECT * FROM journal_entries').all(),
-      journal_lines: db.prepare('SELECT * FROM journal_lines').all(),
-      categorization_rules: db.prepare('SELECT * FROM categorization_rules').all(),
-      budgets: db.prepare('SELECT * FROM budgets').all(),
-      savings_goals: db.prepare('SELECT * FROM savings_goals').all(),
-      invoices_bills: db.prepare('SELECT * FROM invoices_bills').all(),
-      recurring_transactions: db.prepare('SELECT * FROM recurring_transactions').all(),
-      reconciliations: db.prepare('SELECT * FROM reconciliations').all()
-    };
+    const { backup } = saveSnapshotToDb(`Downloaded Backup (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`);
     res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="ledger_full_backup_${new Date().toISOString().slice(0, 10)}.json"`);
     res.send(JSON.stringify(backup, null, 2));
@@ -1271,80 +1565,68 @@ app.get('/api/export/backup.json', (req, res) => {
   }
 });
 
+app.post('/api/backups/create', (req, res) => {
+  try {
+    const label = (req.body && req.body.label) || `Saved Backup (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`;
+    const snap = saveSnapshotToDb(label);
+    res.json({ ok: true, id: snap.id, label: snap.label, account_count: snap.account_count, entry_count: snap.entry_count });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/backups/restore-latest', (req, res) => {
+  try {
+    const latest = db.prepare('SELECT * FROM backup_snapshots ORDER BY id DESC LIMIT 1').get();
+    if (!latest) {
+      throw new Error('No saved backup snapshot found to restore.');
+    }
+    const data = JSON.parse(latest.payload_json);
+    restoreFromBackupObject(data);
+    res.json({
+      ok: true,
+      restoredId: latest.id,
+      label: latest.label,
+      created_at: latest.created_at,
+      account_count: latest.account_count,
+      entry_count: latest.entry_count
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/backups/:id/restore', (req, res) => {
+  try {
+    const snap = db.prepare('SELECT * FROM backup_snapshots WHERE id = ?').get(Number(req.params.id));
+    if (!snap) throw new Error('Backup snapshot not found.');
+    const data = JSON.parse(snap.payload_json);
+    restoreFromBackupObject(data);
+    res.json({
+      ok: true,
+      restoredId: snap.id,
+      label: snap.label,
+      created_at: snap.created_at
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.delete('/api/backups/:id', (req, res) => {
+  try {
+    db.prepare('DELETE FROM backup_snapshots WHERE id = ?').run(Number(req.params.id));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 app.post('/api/import/backup-restore', (req, res) => {
   try {
     const data = req.body;
-    if (!data || !Array.isArray(data.accounts) || !Array.isArray(data.journal_entries)) {
-      throw new Error('Invalid backup JSON file.');
-    }
-
-    db.exec('PRAGMA foreign_keys = OFF;');
-    db.exec('BEGIN');
-    try {
-      const tables = [
-        'journal_lines', 'journal_entries', 'categorization_rules',
-        'budgets', 'savings_goals', 'invoices_bills',
-        'recurring_transactions', 'reconciliations', 'import_batches',
-        'accounts', 'currencies', 'settings'
-      ];
-      for (const t of tables) {
-        db.exec(`DELETE FROM ${t};`);
-      }
-
-      if (Array.isArray(data.settings)) {
-        const sStmt = db.prepare('INSERT INTO settings (key, value) VALUES (?, ?)');
-        for (const r of data.settings) sStmt.run(r.key, r.value);
-      }
-      if (Array.isArray(data.currencies)) {
-        const cStmt = db.prepare('INSERT INTO currencies (code, name, symbol, exchange_rate) VALUES (?, ?, ?, ?)');
-        for (const r of data.currencies) cStmt.run(r.code, r.name, r.symbol, r.exchange_rate);
-      }
-      for (const a of data.accounts) {
-        db.prepare(`
-          INSERT INTO accounts (id, code, name, type, subtype, currency, description, tax_category, is_system, is_active)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(a.id, a.code, a.name, a.type, a.subtype, a.currency || 'USD', a.description || '', a.tax_category || '', a.is_system || 0, a.is_active ?? 1);
-      }
-      for (const je of data.journal_entries) {
-        db.prepare(`
-          INSERT INTO journal_entries (id, entry_number, date, memo, payee, reference, source_type, currency, exchange_rate, is_tax_deductible, import_batch_id, import_hash)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(je.id, je.entry_number, je.date, je.memo || '', je.payee || '', je.reference || '', je.source_type || 'JOURNAL', je.currency || 'USD', je.exchange_rate || 1, je.is_tax_deductible || 0, je.import_batch_id || null, je.import_hash || null);
-      }
-      if (Array.isArray(data.journal_lines)) {
-        for (const jl of data.journal_lines) {
-          db.prepare(`
-            INSERT INTO journal_lines (id, journal_entry_id, account_id, description, debit, credit, foreign_amount, reconciled_status, reconciliation_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(jl.id, jl.journal_entry_id, jl.account_id, jl.description || '', jl.debit || 0, jl.credit || 0, jl.foreign_amount || 0, jl.reconciled_status || 'UNRECONCILED', jl.reconciliation_id || null);
-        }
-      }
-      if (Array.isArray(data.categorization_rules)) {
-        for (const r of data.categorization_rules) {
-          db.prepare(`
-            INSERT INTO categorization_rules (id, name, priority, match_field, match_type, match_value, transaction_type, target_account_id, assign_payee, is_tax_deductible, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(r.id, r.name, r.priority, r.match_field, r.match_type, r.match_value, r.transaction_type, r.target_account_id, r.assign_payee || '', r.is_tax_deductible || 0, r.is_active ?? 1);
-        }
-      }
-      if (Array.isArray(data.budgets)) {
-        for (const b of data.budgets) {
-          db.prepare('INSERT INTO budgets (id, account_id, monthly_amount, notes) VALUES (?, ?, ?, ?)').run(b.id, b.account_id, b.monthly_amount, b.notes || '');
-        }
-      }
-      if (Array.isArray(data.savings_goals)) {
-        for (const g of data.savings_goals) {
-          db.prepare('INSERT INTO savings_goals (id, name, target_amount, current_amount, linked_account_id, target_date, color, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(g.id, g.name, g.target_amount, g.current_amount, g.linked_account_id, g.target_date || '', g.color || '#10b981', g.notes || '');
-        }
-      }
-      db.exec('COMMIT');
-    } catch (innerErr) {
-      db.exec('ROLLBACK');
-      throw innerErr;
-    } finally {
-      db.exec('PRAGMA foreign_keys = ON;');
-    }
-
+    restoreFromBackupObject(data);
+    saveSnapshotToDb(`Uploaded Backup File (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`);
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -1385,6 +1667,7 @@ app.post('/api/currencies', (req, res) => {
 
 app.post('/api/admin/reset-demo', (req, res) => {
   try {
+    saveSnapshotToDb('Auto-Backup Before Demo Restore');
     db.exec('PRAGMA foreign_keys = OFF;');
     const tables = [
       'journal_lines', 'journal_entries', 'categorization_rules',
@@ -1402,6 +1685,10 @@ app.post('/api/admin/reset-demo', (req, res) => {
 
 app.post('/api/admin/clear-transactions', (req, res) => {
   try {
+    const entryCount = db.prepare('SELECT COUNT(*) AS c FROM journal_entries').get().c;
+    if (entryCount > 0) {
+      saveSnapshotToDb(`Auto-Backup Before Empty Reset (${entryCount} entries)`);
+    }
     db.exec('PRAGMA foreign_keys = OFF;');
     const tables = [
       'journal_lines', 'journal_entries', 'invoices_bills',

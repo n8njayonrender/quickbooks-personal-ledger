@@ -1,12 +1,13 @@
 /**
  * Standalone Browser Accounting & Persistence Engine for GitHub Pages / Static Hosting
  * Automatically activates when hosted on GitHub Pages (*.github.io) or if the Node SQLite backend is unreachable.
- * Provides 100% feature parity: Double-Entry General Ledger, CSV Bank Statement Import, Auto-Categorization Rules,
- * Bank Reconciliation, P&L, Balance Sheet, Trial Balance, Cash Flow, Tax Summary, Budgets, Goals, Invoices/Bills,
- * Recurring Transactions, and CSV/JSON File Exports.
+ * Provides 100% feature parity: Double-Entry General Ledger, Full Account & Transaction CRUD (Create/Edit/Delete),
+ * RFC-4180 CSV Bank Statement Import, Auto-Categorization Rules, Bank Reconciliation, Financial Statements,
+ * and Snapshot Backup History with One-Click "Restore Latest Backup".
  */
 (function () {
   const STORAGE_KEY = 'QB_PERSONAL_PRO_LEDGER_V1';
+  const BACKUPS_KEY = 'QB_PERSONAL_PRO_BACKUPS_V1';
 
   function round2(num) {
     return Math.round((Number(num) + Number.EPSILON) * 100) / 100;
@@ -26,6 +27,111 @@
       h = Math.imul(h, 16777619);
     }
     return 'h' + (h >>> 0).toString(16);
+  }
+
+  // RFC-4180 compliant CSV parser
+  function parseCSVText(csvText) {
+    const text = String(csvText || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    const rows = [];
+    let currentRow = [];
+    let currentField = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      const next = text[i + 1];
+      if (inQuotes) {
+        if (ch === '"' && next === '"') {
+          currentField += '"';
+          i++;
+        } else if (ch === '"') {
+          inQuotes = false;
+        } else {
+          currentField += ch;
+        }
+      } else {
+        if (ch === '"') {
+          inQuotes = true;
+        } else if (ch === ',') {
+          currentRow.push(currentField.trim());
+          currentField = '';
+        } else if (ch === '\n') {
+          currentRow.push(currentField.trim());
+          if (currentRow.some((cell) => cell !== '')) rows.push(currentRow);
+          currentRow = [];
+          currentField = '';
+        } else {
+          currentField += ch;
+        }
+      }
+    }
+    if (currentField.length > 0 || currentRow.length > 0) {
+      currentRow.push(currentField.trim());
+      if (currentRow.some((cell) => cell !== '')) rows.push(currentRow);
+    }
+    return rows;
+  }
+
+  function normalizeDate(raw) {
+    const str = String(raw || '').trim();
+    if (!str) return new Date().toISOString().slice(0, 10);
+    const isoMatch = str.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+    if (isoMatch) {
+      return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+    }
+    const slashMatch = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/);
+    if (slashMatch) {
+      let p1 = parseInt(slashMatch[1], 10);
+      let p2 = parseInt(slashMatch[2], 10);
+      let yr = slashMatch[3];
+      if (yr.length === 2) yr = '20' + yr;
+      let month = p1 > 12 ? p2 : p1;
+      let day = p1 > 12 ? p1 : p2;
+      return `${yr}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+    const parsed = new Date(str);
+    if (!isNaN(parsed.getTime())) return parsed.toISOString().slice(0, 10);
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  function parseAmount(raw) {
+    if (raw === null || raw === undefined) return 0;
+    let str = String(raw).trim();
+    if (!str) return 0;
+    let isNegative = false;
+    if (str.startsWith('(') && str.endsWith(')')) {
+      isNegative = true;
+      str = str.slice(1, -1);
+    }
+    if (str.includes('-')) isNegative = true;
+    const cleaned = str.replace(/[^0-9.]/g, '');
+    const val = parseFloat(cleaned);
+    if (isNaN(val)) return 0;
+    return isNegative ? -Math.abs(val) : val;
+  }
+
+  function autoDetectColumns(headers) {
+    const mapping = {
+      dateCol: -1, descriptionCol: -1, payeeCol: -1,
+      amountCol: -1, debitCol: -1, creditCol: -1,
+      typeCol: -1, referenceCol: -1, categoryCol: -1
+    };
+    headers.forEach((h, idx) => {
+      const lower = String(h || '').toLowerCase().trim();
+      if (mapping.dateCol === -1 && (lower.includes('date') || lower === 'posted' || lower === 'timestamp')) mapping.dateCol = idx;
+      else if (mapping.descriptionCol === -1 && (lower.includes('desc') || lower.includes('memo') || lower.includes('narrative') || lower.includes('details') || lower.includes('particulars'))) mapping.descriptionCol = idx;
+      else if (mapping.payeeCol === -1 && (lower.includes('payee') || lower.includes('merchant') || lower.includes('vendor') || lower.includes('name'))) mapping.payeeCol = idx;
+      else if (mapping.amountCol === -1 && (lower === 'amount' || lower.includes('amount') || lower === 'value' || lower === 'net')) mapping.amountCol = idx;
+      else if (mapping.debitCol === -1 && (lower.includes('debit') || lower.includes('withdrawal') || lower.includes('outflow') || lower.includes('money out'))) mapping.debitCol = idx;
+      else if (mapping.creditCol === -1 && (lower.includes('credit') || lower.includes('deposit') || lower.includes('inflow') || lower.includes('money in'))) mapping.creditCol = idx;
+      else if (mapping.typeCol === -1 && (lower === 'type' || lower === 'transaction type' || lower === 'dr/cr')) mapping.typeCol = idx;
+      else if (mapping.referenceCol === -1 && (lower.includes('ref') || lower.includes('check') || lower.includes('id') || lower.includes('number'))) mapping.referenceCol = idx;
+      else if (mapping.categoryCol === -1 && (lower.includes('cat') || lower.includes('account'))) mapping.categoryCol = idx;
+    });
+    if (mapping.dateCol === -1 && headers.length > 0) mapping.dateCol = 0;
+    if (mapping.descriptionCol === -1 && headers.length > 1) mapping.descriptionCol = 1;
+    if (mapping.amountCol === -1 && mapping.debitCol === -1 && headers.length > 2) mapping.amountCol = 2;
+    return mapping;
   }
 
   function createInitialStore() {
@@ -158,7 +264,6 @@
       insertSimpleTransaction(store, tx);
     }
 
-    // Rules
     const addRule = (name, priority, match_value, transaction_type, target_account_id, assign_payee, is_tax_deductible) => {
       store.categorization_rules.push({
         id: store.nextIds.rule++,
@@ -175,7 +280,6 @@
     addRule('Starbucks / Coffee & Dining', 7, 'STARBUCKS', 'OUTFLOW', accDining.id, 'Starbucks Coffee', 0);
     addRule('Payroll Direct Deposit', 8, 'PAYROLL', 'INFLOW', accSalary.id, 'TechCorp Direct Deposit', 0);
 
-    // Budgets
     const addBudget = (account_id, monthly_amount, notes) => {
       store.budgets.push({ id: store.nextIds.budget++, account_id, monthly_amount, notes });
     };
@@ -189,14 +293,12 @@
     addBudget(accInsurance.id, 185, 'Auto & renters insurance');
     addBudget(accEntertainment.id, 200, 'Fitness & hobbies');
 
-    // Goals
     store.savings_goals.push(
       { id: store.nextIds.goal++, name: '6-Month Emergency Reserve', target_amount: 35000, current_amount: 29618.40, linked_account_id: accSavings.id, target_date: '2027-03-31', color: '#10b981', notes: '' },
       { id: store.nextIds.goal++, name: 'House Down Payment Fund', target_amount: 100000, current_amount: 64312.50, linked_account_id: accBrokerage.id, target_date: '2028-06-30', color: '#3b82f6', notes: '' },
       { id: store.nextIds.goal++, name: 'Japan Autumn Travel Fund', target_amount: 6500, current_amount: 4200, linked_account_id: accSavings.id, target_date: '2027-10-01', color: '#8b5cf6', notes: '' }
     );
 
-    // Open Invoice & Bill
     const invEntryId = insertJournalEntry(store, {
       date: '2026-10-10',
       memo: 'Invoice INV-1002 issued to Horizon FinTech for Q4 Architecture Audit',
@@ -236,7 +338,6 @@
       accrual_journal_entry_id: billEntryId, payment_journal_entry_id: null, paid_date: null
     });
 
-    // Recurring
     store.recurring_transactions.push(
       { id: store.nextIds.rec++, name: 'Bi-Weekly TechCorp Paycheck', tx_type: 'INCOME', frequency: 'BIWEEKLY', next_date: '2026-10-29', amount: 4650, currency: 'USD', payment_account_id: accChecking.id, category_account_id: accSalary.id, payee: 'TechCorp Direct Deposit', memo: 'Bi-weekly Payroll Direct Deposit', is_tax_deductible: 0 },
       { id: store.nextIds.rec++, name: 'Monthly Apartment Rent', tx_type: 'EXPENSE', frequency: 'MONTHLY', next_date: '2026-11-01', amount: 2250, currency: 'USD', payment_account_id: accChecking.id, category_account_id: accHousing.id, payee: 'Skyline Property Management', memo: 'Monthly Rent & Residence Fee', is_tax_deductible: 0 },
@@ -260,6 +361,43 @@
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
     } catch (_) {}
+  }
+
+  function loadBackupsList() {
+    try {
+      const raw = localStorage.getItem(BACKUPS_KEY);
+      if (raw) return JSON.parse(raw);
+    } catch (_) {}
+    const store = loadStore();
+    const initialSnap = {
+      id: 1,
+      label: 'Initial Ledger Snapshot',
+      account_count: store.accounts.length,
+      entry_count: store.journal_entries.length,
+      created_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      payload: JSON.parse(JSON.stringify(store))
+    };
+    localStorage.setItem(BACKUPS_KEY, JSON.stringify([initialSnap]));
+    return [initialSnap];
+  }
+
+  function createSnapshotInBrowser(store, label = 'Manual Backup') {
+    const list = loadBackupsList();
+    const nextId = list.reduce((m, s) => Math.max(m, s.id || 0), 0) + 1;
+    const snap = {
+      id: nextId,
+      label,
+      account_count: (store.accounts || []).length,
+      entry_count: (store.journal_entries || []).length,
+      created_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+      payload: JSON.parse(JSON.stringify(store))
+    };
+    list.unshift(snap);
+    const trimmed = list.slice(0, 15);
+    try {
+      localStorage.setItem(BACKUPS_KEY, JSON.stringify(trimmed));
+    } catch (_) {}
+    return snap;
   }
 
   function insertJournalEntry(store, payload) {
@@ -350,7 +488,7 @@
 
   function getAccountsWithBalances(store, asOfDate = null) {
     const entryMap = new Map(store.journal_entries.map((e) => [e.id, e]));
-    return store.accounts.slice().sort((a, b) => a.code.localeCompare(b.code)).map((acc) => {
+    return store.accounts.slice().sort((a, b) => String(a.code).localeCompare(String(b.code))).map((acc) => {
       let d = 0;
       let c = 0;
       let count = 0;
@@ -453,6 +591,40 @@
     return { asOfDate, rows, totalDebit, totalCredit, isBalanced: Math.abs(totalDebit - totalCredit) < 0.01 };
   }
 
+  function computeCashFlow(store, startDate, endDate) {
+    const accMap = new Map(store.accounts.map((a) => [a.id, a]));
+    const entryMap = new Map(store.journal_entries.map((e) => [e.id, e]));
+    let beginningCash = 0;
+    let endingCash = 0;
+    let investingCashFlow = 0;
+
+    for (const jl of store.journal_lines) {
+      const acc = accMap.get(jl.account_id);
+      const je = entryMap.get(jl.journal_entry_id);
+      if (!acc || !je) continue;
+      if (acc.type === 'ASSET' && acc.subtype === 'BANK') {
+        if (je.date < startDate) beginningCash += (jl.debit - jl.credit);
+        if (je.date <= endDate) endingCash += (jl.debit - jl.credit);
+      }
+      if (['INVESTMENT', 'FIXED_ASSET'].includes(acc.subtype) && je.date >= startDate && je.date <= endDate && je.source_type !== 'OPENING_BALANCE') {
+        investingCashFlow += (jl.credit - jl.debit);
+      }
+    }
+    beginningCash = round2(beginningCash);
+    endingCash = round2(endingCash);
+    investingCashFlow = round2(investingCashFlow);
+    const pnl = computePnL(store, startDate, endDate);
+    const operatingCashFlow = pnl.netIncome;
+    const netCashChange = round2(endingCash - beginningCash);
+    const financingAndWorkingCapital = round2(netCashChange - operatingCashFlow - investingCashFlow);
+
+    return {
+      startDate, endDate,
+      beginningCash, operatingCashFlow, investingCashFlow,
+      financingAndWorkingCapital, netCashChange, endingCash
+    };
+  }
+
   function handleStandaloneRequest(urlStr, options = {}) {
     const store = loadStore();
     const method = (options.method || 'GET').toUpperCase();
@@ -464,11 +636,15 @@
 
     if (path === '/api/bootstrap' && method === 'GET') {
       const accounts = getAccountsWithBalances(store);
-      const bs = computeBalanceSheet(store, '2026-10-31');
-      const ytdPnl = computePnL(store, '2026-01-01', '2026-10-31');
-      const monthPnl = computePnL(store, '2026-10-01', '2026-10-31');
+      const allDates = store.journal_entries.map((e) => e.date).sort();
+      const latestTxDate = allDates.length > 0 ? allDates[allDates.length - 1] : new Date().toISOString().slice(0, 10);
+      const activeYear = latestTxDate.slice(0, 4);
+      const activeMonth = latestTxDate.slice(0, 7);
 
-      // Monthly trends
+      const bs = computeBalanceSheet(store, `${activeYear}-12-31`);
+      const ytdPnl = computePnL(store, `${activeYear}-01-01`, `${activeYear}-12-31`);
+      const monthPnl = computePnL(store, `${activeMonth}-01`, `${activeMonth}-31`);
+
       const monthsMap = {};
       const entryMap = new Map(store.journal_entries.map((e) => [e.id, e]));
       for (const jl of store.journal_lines) {
@@ -487,7 +663,6 @@
         net: round2(m.income - m.expense)
       }));
 
-      // Enriched transactions
       const transactions = store.journal_entries
         .slice()
         .sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id)
@@ -534,6 +709,10 @@
       const creditCardAccounts = accounts.filter((a) => a.type === 'LIABILITY' && a.subtype === 'CREDIT_CARD');
       const totalCreditCardDebt = round2(creditCardAccounts.reduce((s, a) => s + a.balance, 0));
 
+      const backups = loadBackupsList().map(({ id, label, account_count, entry_count, created_at }) => ({
+        id, label, account_count, entry_count, created_at
+      }));
+
       return {
         settings: store.settings,
         currencies: store.currencies,
@@ -575,11 +754,21 @@
         importBatches: store.import_batches.map((b) => {
           const ba = accMap.get(b.account_id) || {};
           return { ...b, account_code: ba.code, account_name: ba.name };
-        })
+        }),
+        backups
       };
     }
 
     if (path === '/api/transactions/simple' && method === 'POST') {
+      const entryId = insertSimpleTransaction(store, body);
+      saveStore(store);
+      return { ok: true, entryId };
+    }
+
+    if (path.match(/^\/api\/transactions\/simple\/\d+$/) && method === 'PUT') {
+      const id = Number(path.split('/')[4]);
+      store.journal_entries = store.journal_entries.filter((e) => e.id !== id);
+      store.journal_lines = store.journal_lines.filter((l) => l.journal_entry_id !== id);
       const entryId = insertSimpleTransaction(store, body);
       saveStore(store);
       return { ok: true, entryId };
@@ -617,12 +806,19 @@
       return { ok: true };
     }
 
+    // CREATE ACCOUNT
     if (path === '/api/accounts' && method === 'POST') {
+      const codeTrim = String(body.code || '').trim();
+      const nameTrim = String(body.name || '').trim();
+      if (!codeTrim || !nameTrim) throw new Error('Account code and name are required.');
+      if (store.accounts.some((a) => a.code === codeTrim)) {
+        throw new Error(`Account code ${codeTrim} already exists.`);
+      }
       const id = store.nextIds.account++;
       store.accounts.push({
         id,
-        code: String(body.code).trim(),
-        name: String(body.name).trim(),
+        code: codeTrim,
+        name: nameTrim,
         type: body.type,
         subtype: body.subtype || body.type,
         currency: 'USD',
@@ -632,21 +828,98 @@
         is_active: 1
       });
       if (Number(body.opening_balance) > 0) {
-        const openEq = store.accounts.find((a) => a.code === '3010');
+        const openEq = store.accounts.find((a) => a.code === '3010') || store.accounts.find((a) => a.type === 'EQUITY');
         const amt = round2(body.opening_balance);
         const isDebit = body.type === 'ASSET' || body.type === 'EXPENSE';
-        insertJournalEntry(store, {
-          date: '2026-01-01',
-          memo: `Opening Balance for ${body.name}`,
-          payee: 'Opening Balance',
-          source_type: 'OPENING_BALANCE',
-          lines: isDebit
-            ? [{ account_id: id, debit: amt, credit: 0 }, { account_id: openEq.id, debit: 0, credit: amt }]
-            : [{ account_id: openEq.id, debit: amt, credit: 0 }, { account_id: id, debit: 0, credit: amt }]
-        });
+        if (openEq && openEq.id !== id) {
+          insertJournalEntry(store, {
+            date: '2026-01-01',
+            memo: `Opening Balance for ${nameTrim}`,
+            payee: 'Opening Balance',
+            source_type: 'OPENING_BALANCE',
+            lines: isDebit
+              ? [{ account_id: id, debit: amt, credit: 0 }, { account_id: openEq.id, debit: 0, credit: amt }]
+              : [{ account_id: openEq.id, debit: amt, credit: 0 }, { account_id: id, debit: 0, credit: amt }]
+          });
+        }
       }
       saveStore(store);
       return { ok: true, accountId: id };
+    }
+
+    // EDIT ACCOUNT (both user-created and existing system accounts)
+    if (path.match(/^\/api\/accounts\/\d+$/) && method === 'PUT') {
+      const accId = Number(path.split('/')[3]);
+      const acc = store.accounts.find((a) => a.id === accId);
+      if (!acc) throw new Error('Account not found.');
+      const codeTrim = String(body.code ?? acc.code).trim();
+      const nameTrim = String(body.name ?? acc.name).trim();
+      if (!codeTrim || !nameTrim) throw new Error('Account code and name are required.');
+      if (store.accounts.some((a) => a.code === codeTrim && a.id !== accId)) {
+        throw new Error(`Account code ${codeTrim} is already used by another account.`);
+      }
+      acc.code = codeTrim;
+      acc.name = nameTrim;
+      acc.type = body.type || acc.type;
+      acc.subtype = body.subtype || acc.subtype;
+      acc.tax_category = body.tax_category ?? acc.tax_category;
+      acc.description = body.description ?? acc.description;
+
+      if (body.opening_balance !== undefined && body.opening_balance !== null && body.opening_balance !== '') {
+        const currentAcc = getAccountsWithBalances(store).find((a) => a.id === accId);
+        const currentBal = currentAcc ? currentAcc.balance : 0;
+        const targetBal = round2(Number(body.opening_balance) || 0);
+        const delta = round2(targetBal - currentBal);
+        if (Math.abs(delta) >= 0.01) {
+          const openEq = store.accounts.find((a) => a.code === '3010' && a.id !== accId) ||
+                         store.accounts.find((a) => a.type === 'EQUITY' && a.id !== accId);
+          if (openEq) {
+            const isDebitNormal = acc.type === 'ASSET' || acc.type === 'EXPENSE';
+            const increaseNormal = delta > 0;
+            const debitTarget = (isDebitNormal && increaseNormal) || (!isDebitNormal && !increaseNormal);
+            const absDelta = Math.abs(delta);
+            insertJournalEntry(store, {
+              date: new Date().toISOString().slice(0, 10),
+              memo: `Balance Adjustment for ${acc.code} - ${acc.name}`,
+              payee: 'Balance Adjustment',
+              source_type: 'OPENING_BALANCE',
+              lines: debitTarget
+                ? [{ account_id: accId, debit: absDelta, credit: 0 }, { account_id: openEq.id, debit: 0, credit: absDelta }]
+                : [{ account_id: openEq.id, debit: absDelta, credit: 0 }, { account_id: accId, debit: 0, credit: absDelta }]
+            });
+          }
+        }
+      }
+      saveStore(store);
+      return { ok: true, accountId: accId };
+    }
+
+    // DELETE ACCOUNT (both user-created and existing system accounts)
+    if (path.match(/^\/api\/accounts\/\d+$/) && method === 'DELETE') {
+      const accId = Number(path.split('/')[3]);
+      const acc = store.accounts.find((a) => a.id === accId);
+      if (!acc) throw new Error('Account not found');
+      if (store.accounts.length <= 1) {
+        throw new Error('Cannot delete the last remaining account.');
+      }
+      const reassignTo = parsedUrl.searchParams.get('reassignTo') ? Number(parsedUrl.searchParams.get('reassignTo')) : null;
+      if (reassignTo && reassignTo !== accId) {
+        store.journal_lines.forEach((l) => { if (l.account_id === accId) l.account_id = reassignTo; });
+        store.categorization_rules.forEach((r) => { if (r.target_account_id === accId) r.target_account_id = reassignTo; });
+      } else {
+        const affectedEntryIds = new Set(
+          store.journal_lines.filter((l) => l.account_id === accId).map((l) => l.journal_entry_id)
+        );
+        store.journal_entries = store.journal_entries.filter((e) => !affectedEntryIds.has(e.id));
+        store.journal_lines = store.journal_lines.filter((l) => !affectedEntryIds.has(l.journal_entry_id));
+        store.categorization_rules = store.categorization_rules.filter((r) => r.target_account_id !== accId);
+      }
+      store.budgets = store.budgets.filter((b) => b.account_id !== accId);
+      store.reconciliations = store.reconciliations.filter((r) => r.account_id !== accId);
+      store.import_batches = store.import_batches.filter((b) => b.account_id !== accId);
+      store.accounts = store.accounts.filter((a) => a.id !== accId);
+      saveStore(store);
+      return { ok: true, deleted: acc };
     }
 
     if (path.match(/^\/api\/accounts\/\d+\/ledger$/) && method === 'GET') {
@@ -666,26 +939,32 @@
     }
 
     if (path === '/api/import/csv-preview' && method === 'POST') {
-      const lines = String(body.csvText || '').trim().split(/\r?\n/).map((r) => r.split(',').map((c) => c.replace(/^"|"$/g, '').trim()));
-      const headers = lines[0] || [];
-      const dataRows = lines.slice(1);
-      const mapping = body.customMapping || { dateCol: 0, descriptionCol: 1, payeeCol: 2, referenceCol: 3, debitCol: 4, creditCol: 5, amountCol: 6 };
-      const expDefault = store.accounts.find((a) => a.code === '5999') || store.accounts.find((a) => a.type === 'EXPENSE');
-      const incDefault = store.accounts.find((a) => a.code === '4090') || store.accounts.find((a) => a.type === 'INCOME');
+      const allRows = parseCSVText(body.csvText || '');
+      if (allRows.length < 2) throw new Error('CSV file must have a header row and at least one transaction row.');
+      const headers = allRows[0];
+      const dataRows = allRows.slice(1);
+      const mapping = body.customMapping || autoDetectColumns(headers);
+      const expDefault = store.accounts.find((a) => a.code === '5999') || store.accounts.find((a) => a.type === 'EXPENSE') || store.accounts[0];
+      const incDefault = store.accounts.find((a) => a.code === '4090') || store.accounts.find((a) => a.type === 'INCOME') || store.accounts[0];
 
       const transactions = dataRows.map((row, idx) => {
-        const date = row[mapping.dateCol] || '2026-10-19';
-        const description = row[mapping.descriptionCol] || 'Bank Statement Item';
+        const date = normalizeDate(mapping.dateCol >= 0 ? row[mapping.dateCol] : '');
+        const description = mapping.descriptionCol >= 0 ? (row[mapping.descriptionCol] || '') : '';
         let payee = mapping.payeeCol >= 0 ? (row[mapping.payeeCol] || '') : '';
         const reference = mapping.referenceCol >= 0 ? (row[mapping.referenceCol] || '') : '';
+        const rawType = mapping.typeCol >= 0 ? String(row[mapping.typeCol] || '').toUpperCase() : '';
+
         let signedAmount = 0;
-        if (mapping.amountCol >= 0 && row[mapping.amountCol]) {
-          signedAmount = parseFloat(String(row[mapping.amountCol]).replace(/[^0-9.-]/g, '')) || 0;
-        } else {
-          const d = parseFloat(String(row[mapping.debitCol] || '').replace(/[^0-9.]/g, '')) || 0;
-          const c = parseFloat(String(row[mapping.creditCol] || '').replace(/[^0-9.]/g, '')) || 0;
-          signedAmount = c > 0 ? c : -d;
+        if (mapping.debitCol >= 0 && mapping.creditCol >= 0 && (row[mapping.debitCol] || row[mapping.creditCol])) {
+          const deb = Math.abs(parseAmount(row[mapping.debitCol]));
+          const cred = Math.abs(parseAmount(row[mapping.creditCol]));
+          signedAmount = cred > 0 ? cred : -deb;
+        } else if (mapping.amountCol >= 0) {
+          signedAmount = parseAmount(row[mapping.amountCol]);
+          if (rawType.includes('DEBIT') || rawType.includes('WITHDRAWAL') || rawType === 'DR') signedAmount = -Math.abs(signedAmount);
+          else if (rawType.includes('CREDIT') || rawType.includes('DEPOSIT') || rawType === 'CR') signedAmount = Math.abs(signedAmount);
         }
+
         const isInflow = signedAmount > 0;
         const absAmount = round2(Math.abs(signedAmount));
         const txType = isInflow ? 'INCOME' : 'EXPENSE';
@@ -693,7 +972,7 @@
         const rule = store.categorization_rules.find((r) =>
           `${description} ${payee}`.toUpperCase().includes(String(r.match_value || '').toUpperCase())
         );
-        const catAcc = rule ? accMap.get(rule.target_account_id) : (isInflow ? incDefault : expDefault);
+        const catAcc = (rule && accMap.get(rule.target_account_id)) || (isInflow ? incDefault : expDefault);
         if (rule && rule.assign_payee && !payee) payee = rule.assign_payee;
 
         const importHash = makeHash(date, signedAmount, description, body.bankAccountId);
@@ -701,8 +980,13 @@
 
         return {
           rowIndex: idx + 1,
-          date, description, payee: payee || description.slice(0, 28), reference,
-          signedAmount, absAmount, txType,
+          date,
+          description: description || payee || 'Bank Statement Entry',
+          payee: payee || description.slice(0, 28),
+          reference,
+          signedAmount: round2(signedAmount),
+          absAmount,
+          txType,
           categoryAccountId: catAcc.id,
           categoryAccountName: `${catAcc.code} - ${catAcc.name}`,
           matchedRuleName: rule ? rule.name : null,
@@ -816,17 +1100,7 @@
       const pnl = computePnL(store, startDate, endDate);
       const balanceSheet = computeBalanceSheet(store, endDate);
       const trialBalance = computeTrialBalance(store, endDate);
-      const cashAccounts = balanceSheet.assets.filter((a) => a.subtype === 'BANK');
-      const endingCash = round2(cashAccounts.reduce((s, a) => s + a.balance, 0));
-      const cashFlow = {
-        startDate, endDate,
-        beginningCash: 42500,
-        operatingCashFlow: pnl.netIncome,
-        investingCashFlow: -2000,
-        financingAndWorkingCapital: round2(endingCash - 42500 - pnl.netIncome + 2000),
-        netCashChange: round2(endingCash - 42500),
-        endingCash
-      };
+      const cashFlow = computeCashFlow(store, startDate, endDate);
       const estTaxRate = Number(store.settings.tax_rate_estimate || 24);
       const entryMap = new Map(store.journal_entries.map((e) => [e.id, e]));
       const deductibleRows = [];
@@ -931,8 +1205,8 @@
     }
 
     if (path === '/api/invoices-bills' && method === 'POST') {
-      const ar = store.accounts.find((a) => a.code === '1200');
-      const ap = store.accounts.find((a) => a.code === '2100');
+      const ar = store.accounts.find((a) => a.code === '1200') || store.accounts[0];
+      const ap = store.accounts.find((a) => a.code === '2100') || store.accounts[0];
       const amt = round2(body.total_amount);
       const arApId = body.doc_type === 'INVOICE' ? ar.id : ap.id;
       const lines = body.doc_type === 'INVOICE'
@@ -1034,13 +1308,66 @@
       return { ok: true };
     }
 
+    // BACKUP SNAPSHOTS & RESTORE LATEST BACKUP
+    if (path === '/api/backups/create' && method === 'POST') {
+      const label = body.label || `Saved Backup (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`;
+      const snap = createSnapshotInBrowser(store, label);
+      return { ok: true, id: snap.id, label: snap.label, account_count: snap.account_count, entry_count: snap.entry_count };
+    }
+
+    if (path === '/api/backups/restore-latest' && method === 'POST') {
+      const list = loadBackupsList();
+      if (!list.length) throw new Error('No saved backup snapshot found yet. Click "Download Backup (.JSON)" or "+ Save Instant Snapshot" first.');
+      const latest = list[0];
+      saveStore(latest.payload);
+      return {
+        ok: true,
+        restoredSnapshot: {
+          id: latest.id,
+          label: latest.label,
+          created_at: latest.created_at,
+          account_count: latest.account_count,
+          entry_count: latest.entry_count
+        }
+      };
+    }
+
+    if (path.match(/^\/api\/backups\/\d+\/restore$/) && method === 'POST') {
+      const id = Number(path.split('/')[3]);
+      const list = loadBackupsList();
+      const snap = list.find((s) => s.id === id);
+      if (!snap) throw new Error('Backup snapshot not found.');
+      saveStore(snap.payload);
+      return {
+        ok: true,
+        restoredSnapshot: {
+          id: snap.id,
+          label: snap.label,
+          created_at: snap.created_at,
+          account_count: snap.account_count,
+          entry_count: snap.entry_count
+        }
+      };
+    }
+
+    if (path.match(/^\/api\/backups\/\d+$/) && method === 'DELETE') {
+      const id = Number(path.split('/')[3]);
+      const list = loadBackupsList().filter((s) => s.id !== id);
+      localStorage.setItem(BACKUPS_KEY, JSON.stringify(list));
+      return { ok: true };
+    }
+
     if (path === '/api/admin/reset-demo' && method === 'POST') {
+      createSnapshotInBrowser(store, 'Auto-Backup Before Demo Restore');
       const fresh = createInitialStore();
       saveStore(fresh);
       return { ok: true };
     }
 
     if (path === '/api/admin/clear-transactions' && method === 'POST') {
+      if (store.journal_entries.length > 0) {
+        createSnapshotInBrowser(store, `Auto-Backup Before Empty Reset (${store.journal_entries.length} entries)`);
+      }
       store.journal_entries = [];
       store.journal_lines = [];
       store.invoices_bills = [];
@@ -1055,7 +1382,9 @@
 
     if (path === '/api/import/backup-restore' && method === 'POST') {
       if (Array.isArray(body.accounts) && Array.isArray(body.journal_entries)) {
-        saveStore({ ...store, ...body });
+        const merged = { ...store, ...body };
+        saveStore(merged);
+        createSnapshotInBrowser(merged, `Uploaded Backup File (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`);
       }
       return { ok: true };
     }
@@ -1086,7 +1415,6 @@
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
 
-  // Override fetch andapiFetch when on GitHub Pages or when backend returns 404
   const origFetch = window.fetch.bind(window);
   window.fetch = async function (input, init) {
     const urlStr = typeof input === 'string' ? input : input.url;
@@ -1094,8 +1422,12 @@
       return new Response(SAMPLE_CSV_TEXT, { status: 200, headers: { 'Content-Type': 'text/csv' } });
     }
     if (window.location.hostname.endsWith('github.io') && urlStr.includes('/api/')) {
-      const result = handleStandaloneRequest(urlStr, init);
-      return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      try {
+        const result = handleStandaloneRequest(urlStr, init);
+        return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      } catch (e) {
+        return new Response(JSON.stringify({ error: e.message }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+      }
     }
     try {
       const res = await origFetch(input, init);
@@ -1106,14 +1438,17 @@
       return res;
     } catch (err) {
       if (urlStr.includes('/api/')) {
-        const result = handleStandaloneRequest(urlStr, init);
-        return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        try {
+          const result = handleStandaloneRequest(urlStr, init);
+          return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
+        } catch (e) {
+          return new Response(JSON.stringify({ error: e.message }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+        }
       }
       throw err;
     }
   };
 
-  // Intercept /api/export/* anchor clicks in standalone / GitHub Pages mode
   document.addEventListener('click', (e) => {
     const link = e.target.closest('a[href*="/api/export/"]');
     if (!link) return;
@@ -1128,7 +1463,9 @@
     if (href.includes('sample-bank-csv')) {
       triggerBlobDownload('sample_bank_statement_oct2026.csv', SAMPLE_CSV_TEXT);
     } else if (href.includes('backup.json')) {
+      createSnapshotInBrowser(store, `Downloaded Backup (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`);
       triggerBlobDownload(`ledger_full_backup_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(store, null, 2), 'application/json');
+      if (typeof window.loadBootstrap === 'function') window.loadBootstrap();
     } else if (href.includes('transactions.csv')) {
       const rows = [['Entry Number', 'Date', 'Type', 'Payee', 'Memo', 'Account Code', 'Account Name', 'Debit', 'Credit', 'Status']];
       for (const jl of store.journal_lines) {
