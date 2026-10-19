@@ -21,6 +21,7 @@ function getAccountsWithBalances(asOfDate = null) {
       a.*,
       COALESCE(SUM(CASE WHEN (? IS NULL OR je.date <= ?) THEN jl.debit ELSE 0 END), 0) AS total_debit,
       COALESCE(SUM(CASE WHEN (? IS NULL OR je.date <= ?) THEN jl.credit ELSE 0 END), 0) AS total_credit,
+      MIN(CASE WHEN je.source_type = 'OPENING_BALANCE' THEN je.date ELSE NULL END) AS opening_date,
       COUNT(jl.id) AS line_count
     FROM accounts a
     LEFT JOIN journal_lines jl ON jl.account_id = a.id
@@ -31,6 +32,7 @@ function getAccountsWithBalances(asOfDate = null) {
   const rows = db.prepare(sql).all(asOfDate, asOfDate, asOfDate, asOfDate);
   return rows.map((r) => ({
     ...r,
+    opening_date: r.opening_date || '2026-01-01',
     total_debit: round2(r.total_debit),
     total_credit: round2(r.total_credit),
     balance: computeNormalBalance(r.type, r.total_debit, r.total_credit)
@@ -501,7 +503,8 @@ function autoDetectColumns(headers) {
     creditCol: -1,
     typeCol: -1,
     referenceCol: -1,
-    categoryCol: -1
+    categoryCol: -1,
+    accountCol: -1
   };
 
   headers.forEach((h, idx) => {
@@ -510,20 +513,22 @@ function autoDetectColumns(headers) {
       mapping.dateCol = idx;
     } else if (mapping.descriptionCol === -1 && (lower.includes('desc') || lower.includes('memo') || lower.includes('narrative') || lower.includes('details') || lower.includes('particulars'))) {
       mapping.descriptionCol = idx;
-    } else if (mapping.payeeCol === -1 && (lower.includes('payee') || lower.includes('merchant') || lower.includes('vendor') || lower.includes('name'))) {
+    } else if (mapping.payeeCol === -1 && (lower.includes('payee') || lower.includes('merchant') || lower.includes('vendor') || lower.includes('counterparty'))) {
       mapping.payeeCol = idx;
     } else if (mapping.amountCol === -1 && (lower === 'amount' || lower.includes('amount') || lower === 'value' || lower === 'net')) {
       mapping.amountCol = idx;
-    } else if (mapping.debitCol === -1 && (lower.includes('debit') || lower.includes('withdrawal') || lower.includes('outflow') || lower.includes('Money Out'.toLowerCase()))) {
+    } else if (mapping.debitCol === -1 && (lower.includes('debit') || lower.includes('withdrawal') || lower.includes('outflow') || lower.includes('money out'))) {
       mapping.debitCol = idx;
-    } else if (mapping.creditCol === -1 && (lower.includes('credit') || lower.includes('deposit') || lower.includes('inflow') || lower.includes('Money In'.toLowerCase()))) {
+    } else if (mapping.creditCol === -1 && (lower.includes('credit') || lower.includes('deposit') || lower.includes('inflow') || lower.includes('money in'))) {
       mapping.creditCol = idx;
     } else if (mapping.typeCol === -1 && (lower === 'type' || lower === 'transaction type' || lower === 'dr/cr')) {
       mapping.typeCol = idx;
     } else if (mapping.referenceCol === -1 && (lower.includes('ref') || lower.includes('check') || lower.includes('id') || lower.includes('number'))) {
       mapping.referenceCol = idx;
-    } else if (mapping.categoryCol === -1 && (lower.includes('cat') || lower.includes('account'))) {
+    } else if (mapping.categoryCol === -1 && (lower.includes('cat') || lower.includes('offset') || lower.includes('expense') || lower.includes('income'))) {
       mapping.categoryCol = idx;
+    } else if (mapping.accountCol === -1 && (lower === 'account' || lower.includes('bank account') || lower.includes('payment account') || lower.includes('source account'))) {
+      mapping.accountCol = idx;
     }
   });
 
@@ -534,9 +539,22 @@ function autoDetectColumns(headers) {
   return mapping;
 }
 
+function matchAccountByText(allAccounts, rawText) {
+  if (!rawText) return null;
+  const clean = String(rawText).trim();
+  if (!clean) return null;
+  const lower = clean.toLowerCase();
+  const codePrefix = clean.split(/[\s\-—]/)[0].trim();
+  return (
+    allAccounts.find((a) => String(a.code) === clean || String(a.code) === codePrefix) ||
+    allAccounts.find((a) => a.name.toLowerCase() === lower) ||
+    allAccounts.find((a) => a.name.toLowerCase().includes(lower) || lower.includes(a.name.toLowerCase()))
+  );
+}
+
 /**
  * Preview CSV import: parses rows, applies column mapping, checks duplicates,
- * and suggests accounts via Auto-Categorization Rules.
+ * and suggests accounts via Auto-Categorization Rules and CSV columns.
  */
 function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
   const allRows = parseCSVText(csvText);
@@ -549,11 +567,13 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
   const mapping = customMapping || autoDetectColumns(headers);
 
   const defaultExpenseAcc = db.prepare("SELECT * FROM accounts WHERE code = '5999'").get() ||
-    db.prepare("SELECT * FROM accounts WHERE type = 'EXPENSE' ORDER BY code ASC LIMIT 1").get();
+    db.prepare("SELECT * FROM accounts WHERE type = 'EXPENSE' ORDER BY code ASC LIMIT 1").get() ||
+    db.prepare('SELECT * FROM accounts ORDER BY code ASC LIMIT 1').get();
   const defaultIncomeAcc = db.prepare("SELECT * FROM accounts WHERE code = '4090'").get() ||
-    db.prepare("SELECT * FROM accounts WHERE type = 'INCOME' ORDER BY code ASC LIMIT 1").get();
+    db.prepare("SELECT * FROM accounts WHERE type = 'INCOME' ORDER BY code ASC LIMIT 1").get() ||
+    defaultExpenseAcc;
 
-  const allAccounts = db.prepare('SELECT id, code, name, type FROM accounts WHERE is_active = 1').all();
+  const allAccounts = db.prepare('SELECT id, code, name, type, subtype FROM accounts WHERE is_active = 1').all();
 
   const parsedTransactions = dataRows.map((row, index) => {
     const rawDate = mapping.dateCol >= 0 ? row[mapping.dateCol] : '';
@@ -562,6 +582,7 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
     let payee = mapping.payeeCol >= 0 ? (row[mapping.payeeCol] || '') : '';
     const reference = mapping.referenceCol >= 0 ? (row[mapping.referenceCol] || '') : '';
     const rawCat = mapping.categoryCol >= 0 ? (row[mapping.categoryCol] || '') : '';
+    const rawAcc = mapping.accountCol !== undefined && mapping.accountCol >= 0 ? (row[mapping.accountCol] || '') : '';
     const rawType = mapping.typeCol >= 0 ? String(row[mapping.typeCol] || '').toUpperCase() : '';
 
     let signedAmount = 0;
@@ -571,25 +592,41 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
       signedAmount = cred > 0 ? cred : -deb;
     } else if (mapping.amountCol >= 0) {
       signedAmount = parseAmount(row[mapping.amountCol]);
-      if (rawType.includes('DEBIT') || rawType.includes('WITHDRAWAL') || rawType === 'DR') {
+      if (rawType.includes('DEBIT') || rawType.includes('WITHDRAWAL') || rawType === 'DR' || rawType === 'EXPENSE') {
         signedAmount = -Math.abs(signedAmount);
-      } else if (rawType.includes('CREDIT') || rawType.includes('DEPOSIT') || rawType === 'CR') {
+      } else if (rawType.includes('CREDIT') || rawType.includes('DEPOSIT') || rawType === 'CR' || rawType === 'INCOME') {
         signedAmount = Math.abs(signedAmount);
       }
     }
 
     const isInflow = signedAmount > 0;
     const absAmount = round2(Math.abs(signedAmount));
-    const txType = isInflow ? 'INCOME' : 'EXPENSE';
+    const txType = rawType === 'TRANSFER' ? 'TRANSFER' : isInflow ? 'INCOME' : 'EXPENSE';
 
-    // Check Auto-Categorization Rules
+    // Determine Payment / Primary Account (from CSV Account column if mapped, else selected bankAccountId)
+    let paymentAccountId = Number(bankAccountId);
+    if (rawAcc) {
+      const matchedPayAcc = matchAccountByText(allAccounts, rawAcc);
+      if (matchedPayAcc) paymentAccountId = matchedPayAcc.id;
+    }
+
+    // Check Auto-Categorization Rules & CSV Category Column
     const matchedRule = matchCategorizationRule(description, payee, isInflow);
     let categoryAccountId = isInflow ? defaultIncomeAcc.id : defaultExpenseAcc.id;
     let categoryAccountName = isInflow ? `${defaultIncomeAcc.code} - ${defaultIncomeAcc.name}` : `${defaultExpenseAcc.code} - ${defaultExpenseAcc.name}`;
     let matchedRuleName = null;
     let isTaxDeductible = 0;
 
-    if (matchedRule) {
+    if (rawCat) {
+      const foundAcc = matchAccountByText(allAccounts, rawCat);
+      if (foundAcc) {
+        categoryAccountId = foundAcc.id;
+        categoryAccountName = `${foundAcc.code} - ${foundAcc.name}`;
+        matchedRuleName = `CSV Column (${foundAcc.code})`;
+      }
+    }
+
+    if (matchedRule && !matchedRuleName) {
       categoryAccountId = matchedRule.target_account_id;
       categoryAccountName = `${matchedRule.account_code} - ${matchedRule.account_name}`;
       matchedRuleName = matchedRule.name;
@@ -597,33 +634,25 @@ function previewCSVImport({ csvText, bankAccountId, customMapping = null }) {
       if (matchedRule.assign_payee && !payee) {
         payee = matchedRule.assign_payee;
       }
-    } else if (rawCat) {
-      // Check if CSV category matches an account name or code
-      const foundAcc = allAccounts.find(
-        (a) => a.name.toLowerCase().includes(rawCat.toLowerCase()) || a.code === rawCat.trim()
-      );
-      if (foundAcc) {
-        categoryAccountId = foundAcc.id;
-        categoryAccountName = `${foundAcc.code} - ${foundAcc.name}`;
-      }
     }
 
     if (!payee && description) {
       payee = description.split(/[-*#]/)[0].trim().slice(0, 40);
     }
 
-    const importHash = makeImportHash(date, signedAmount, description || payee, bankAccountId);
+    const importHash = makeImportHash(date, signedAmount, description || payee, paymentAccountId);
     const existingDup = db.prepare('SELECT id, entry_number FROM journal_entries WHERE import_hash = ?').get(importHash);
 
     return {
       rowIndex: index + 1,
       date,
-      description: description || payee || 'Bank Statement Entry',
+      description: description || payee || 'Statement Entry',
       payee,
       reference,
       signedAmount: round2(signedAmount),
       absAmount,
       txType,
+      paymentAccountId,
       categoryAccountId,
       categoryAccountName,
       matchedRuleName,
@@ -655,6 +684,8 @@ module.exports = {
   getTaxSummary,
   getMonthlyTrends,
   parseCSVText,
+  normalizeDate,
+  parseAmount,
   previewCSVImport,
   matchCategorizationRule
 };

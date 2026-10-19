@@ -121,20 +121,23 @@
           <h1 id="pageTitle" class="text-lg font-bold text-slate-900">Executive Financial Dashboard</h1>
           <span id="baseCurrencyBadge" class="text-xs font-mono px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200">Base: USD ($)</span>
         </div>
-        <div class="flex items-center gap-2.5">
+        <div class="flex items-center gap-2">
           <button onclick="clearAllTransactions()" class="px-3 py-2 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs flex items-center gap-1.5 transition" title="Clear all demo transactions and start with $0.00 balances">
             <span>Reset / Empty Book</span>
           </button>
-          <button onclick="switchTab('import-export')" class="px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs flex items-center gap-1.5 transition">
-            <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-            <span>Import Bank CSV</span>
+          <button onclick="openOpeningBalanceModal()" class="px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold text-xs flex items-center gap-1.5 transition" title="Import or bulk set account opening balances with custom As-Of Dates">
+            <span>Import Opening Balances</span>
           </button>
-          <button onclick="openJournalEntryModal()" class="px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs flex items-center gap-1.5 transition">
+          <button onclick="switchTab('import-export')" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition" title="Upload CSV transactions instead of manual journal posting">
+            <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            <span>Upload Transactions (.CSV)</span>
+          </button>
+          <button onclick="openJournalEntryModal()" class="px-3 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs flex items-center gap-1.5 transition">
             <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
             <span>+ Journal Entry (DR/CR)</span>
           </button>
-          <button onclick="openNewTransactionModal('EXPENSE')" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition">
-            <span>+ Record Transaction</span>
+          <button onclick="openNewTransactionModal('EXPENSE')" class="px-3 py-2 rounded-lg border border-slate-300 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center gap-1.5 transition">
+            <span>+ Record Single</span>
           </button>
         </div>
       </header>
@@ -187,8 +190,8 @@
                 </div>
                 <div id="dashboardAccountsList" class="divide-y divide-slate-100 text-sm"></div>
               </div>
-              <div class="pt-4 mt-4 border-t border-slate-100 flex gap-2">
-                <button onclick="switchTab('reconcile')" class="flex-1 py-2 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">Reconcile Accounts</button>
+              <div class="pt-4 mt-4 border-t border-slate-100 flex flex-wrap gap-2">
+                <button onclick="openOpeningBalanceModal()" class="flex-1 py-2 px-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition">Opening Balances</button>
                 <button onclick="openAccountModal()" class="flex-1 py-2 px-3 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition">+ Add Account</button>
               </div>
             </div>
@@ -198,9 +201,12 @@
               <div class="flex items-center justify-between mb-3">
                 <div>
                   <h2 class="font-bold text-slate-900 text-sm">Recent Ledger Transactions</h2>
-                  <p class="text-xs text-slate-500">Click any entry to inspect its underlying Debits & Credits</p>
+                  <p class="text-xs text-slate-500">Click any entry to inspect or edit its underlying Debits &amp; Credits</p>
                 </div>
-                <button onclick="switchTab('transactions')" class="text-xs text-emerald-600 hover:underline font-semibold">View All Transactions &rarr;</button>
+                <div class="flex items-center gap-2">
+                  <button onclick="switchTab('import-export')" class="text-xs px-2.5 py-1 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-semibold hover:bg-emerald-100">Upload CSV</button>
+                  <button onclick="switchTab('transactions')" class="text-xs text-emerald-600 hover:underline font-semibold">View All &rarr;</button>
+                </div>
               </div>
               <div class="overflow-x-auto">
                 <table class="w-full text-left border-collapse text-xs">
@@ -233,9 +239,12 @@
               </button>
             </div>
 
-            <!-- Filters -->
-            <div class="flex flex-wrap items-center gap-2.5">
-              <input type="text" id="txSearchInput" oninput="renderTransactionsView()" placeholder="Search payee, memo, JE-#..." class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-52 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+            <!-- Filters & Quick Upload Action -->
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="switchTab('import-export')" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition flex items-center gap-1">
+                <span>&uarr; Upload Transactions (.CSV)</span>
+              </button>
+              <input type="text" id="txSearchInput" oninput="renderTransactionsView()" placeholder="Search payee, memo, JE-#..." class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-48 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
               <select id="txAccountFilter" onchange="renderTransactionsView()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white">
                 <option value="">All Accounts</option>
               </select>
@@ -285,12 +294,12 @@
         <!-- ================= VIEW 3: BANK STATEMENT IMPORT & EXPORT CENTER ================= -->
         <section id="view-import-export" class="tab-view hidden space-y-6">
           <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left 2 Columns: Interactive Bank CSV Importer -->
+            <!-- Left 2 Columns: Interactive Bank & Transaction CSV Importer -->
             <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
               <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
                 <div>
-                  <h2 class="text-base font-bold text-slate-900">Import Bank or Credit Card Statement (.CSV)</h2>
-                  <p class="text-xs text-slate-500">Smart column auto-detection, duplicate guard, and automatic categorization rules</p>
+                  <h2 class="text-base font-bold text-slate-900">Upload Bank Statement or Bulk Transactions (.CSV)</h2>
+                  <p class="text-xs text-slate-500">Minimise manual journal posting: upload statements or spreadsheets with auto-detected Category &amp; Account columns and self-learning categorization rules</p>
                 </div>
                 <div class="flex items-center gap-2">
                   <button onclick="loadSampleCSVIntoImporter()" class="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold text-xs transition">
@@ -302,14 +311,14 @@
                 </div>
               </div>
 
-              <!-- Step 1: Select Bank/Card Account & Upload File -->
+              <!-- Step 1: Select Default Account & Upload File -->
               <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1.5">1. Select Target Bank or Credit Card Account</label>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1.5">1. Default Bank / Card / Asset Account (or overridden by CSV Account column)</label>
                   <select id="importTargetAccount" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"></select>
                 </div>
                 <div>
-                  <label class="block text-xs font-semibold text-slate-700 mb-1.5">2. Upload Bank Statement CSV File</label>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1.5">2. Upload Statement or Transactions CSV File</label>
                   <input type="file" id="csvFileInput" accept=".csv,text/csv" onchange="handleCSVFileSelect(event)" class="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer" />
                 </div>
               </div>
@@ -318,18 +327,24 @@
               <div id="csvPreviewSection" class="hidden space-y-4 pt-2 border-t border-slate-200">
                 <div class="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
                   <div class="flex items-center justify-between">
-                    <span class="text-xs font-bold text-slate-800 uppercase tracking-wider">Column Mapping Auto-Detected</span>
+                    <span class="text-xs font-bold text-slate-800 uppercase tracking-wider">Column Mapping Auto-Detected (Supports Date, Description, Amount, Dr/Cr, Category &amp; Account)</span>
                     <button onclick="repreviewWithCustomMapping()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-semibold">Re-Map Columns</button>
                   </div>
-                  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 text-xs" id="csvColumnMapGrid"></div>
+                  <div class="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 gap-2.5 text-xs" id="csvColumnMapGrid"></div>
                 </div>
 
-                <!-- Summary Bar & Commit Button -->
+                <!-- Summary Bar, Auto-Learn Checkbox & Commit Button -->
                 <div class="flex flex-wrap items-center justify-between gap-3 bg-emerald-50/80 border border-emerald-200 rounded-lg p-3.5">
-                  <div class="flex flex-wrap items-center gap-4 text-xs">
-                    <div><span class="text-slate-500">Rows Detected:</span> <strong id="csvStatTotal" class="font-mono text-slate-900">0</strong></div>
-                    <div><span class="text-slate-500">Auto-Categorized by Rules:</span> <strong id="csvStatMatched" class="font-mono text-emerald-700">0</strong></div>
-                    <div><span class="text-slate-500">Duplicates Flagged:</span> <strong id="csvStatDuplicates" class="font-mono text-amber-700">0</strong></div>
+                  <div class="space-y-1">
+                    <div class="flex flex-wrap items-center gap-4 text-xs">
+                      <div><span class="text-slate-500">Rows Detected:</span> <strong id="csvStatTotal" class="font-mono text-slate-900">0</strong></div>
+                      <div><span class="text-slate-500">Auto-Categorized:</span> <strong id="csvStatMatched" class="font-mono text-emerald-700">0</strong></div>
+                      <div><span class="text-slate-500">Duplicates Flagged:</span> <strong id="csvStatDuplicates" class="font-mono text-amber-700">0</strong></div>
+                    </div>
+                    <label class="flex items-center gap-2 text-[11px] text-slate-700 font-medium cursor-pointer">
+                      <input type="checkbox" id="csvAutoLearnRules" checked class="rounded border-slate-300 text-emerald-600" />
+                      <span>Auto-save categorization rules from categorized Payees so future uploads categorize automatically</span>
+                    </label>
                   </div>
                   <button onclick="commitCSVImport()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition">
                     Commit Selected to General Ledger
@@ -345,14 +360,30 @@
                         <th class="py-2.5 px-2">Date</th>
                         <th class="py-2.5 px-2">Description</th>
                         <th class="py-2.5 px-2">Payee</th>
-                        <th class="py-2.5 px-2">Category Account</th>
-                        <th class="py-2.5 px-2">Rule / Status</th>
+                        <th class="py-2.5 px-2">Category / Offset Account</th>
+                        <th class="py-2.5 px-2">Rule / Source</th>
                         <th class="py-2.5 px-2 text-center">Tax Ded.</th>
                         <th class="py-2.5 px-2 text-right">Amount</th>
                       </tr>
                     </thead>
                     <tbody id="csvPreviewTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
                   </table>
+                </div>
+              </div>
+
+              <!-- Opening Balances Import Card -->
+              <div class="p-4 rounded-xl bg-indigo-50/70 border border-indigo-200 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 class="text-xs font-bold text-indigo-950 uppercase tracking-wider">Import or Bulk Set Account Opening Balances (.CSV)</h3>
+                  <p class="text-[11px] text-indigo-800 mt-0.5">Upload a CSV of your starting account balances or enter them in a table with your exact Opening Balance Date (As-Of Date).</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <a href="/api/export/opening-balances-template.csv" class="px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-50 text-indigo-800 border border-indigo-200 font-semibold text-xs transition">
+                    &darr; Opening Balance CSV Template
+                  </a>
+                  <button type="button" onclick="openOpeningBalanceModal()" class="px-3.5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs shadow-xs transition">
+                    Import / Set Opening Balances
+                  </button>
                 </div>
               </div>
 
@@ -376,6 +407,14 @@
                     <div>
                       <div class="font-semibold text-slate-800">General Ledger & Transactions (.CSV)</div>
                       <div class="text-slate-500 text-[11px]">Every journal entry, debit, credit, payee & reconciliation status</div>
+                    </div>
+                    <span class="px-2 py-1 rounded bg-slate-100 font-mono text-[11px] text-slate-700">CSV &darr;</span>
+                  </a>
+
+                  <a href="/api/export/opening-balances-template.csv" class="w-full p-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30 flex items-center justify-between transition">
+                    <div>
+                      <div class="font-semibold text-slate-800">Opening Balances Schedule / Template (.CSV)</div>
+                      <div class="text-slate-500 text-[11px]">Export or edit starting balances and As-Of Dates for all accounts</div>
                     </div>
                     <span class="px-2 py-1 rounded bg-slate-100 font-mono text-[11px] text-slate-700">CSV &darr;</span>
                   </a>
@@ -470,9 +509,14 @@
               <button onclick="setCOAFilter('INCOME')" data-coa="INCOME" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Income (4000s)</button>
               <button onclick="setCOAFilter('EXPENSE')" data-coa="EXPENSE" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Expenses (5000s)</button>
             </div>
-            <button onclick="openAccountModal()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition">
-              + New Account
-            </button>
+            <div class="flex flex-wrap items-center gap-2">
+              <button onclick="openOpeningBalanceModal()" class="px-3.5 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-xs font-semibold transition">
+                &uarr; Import / Set Opening Balances
+              </button>
+              <button onclick="openAccountModal()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition">
+                + New Account
+              </button>
+            </div>
           </div>
 
           <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
@@ -932,18 +976,19 @@
     </div>
   </div>
 
-  <!-- ================= MODAL 2: MULTI-LINE DOUBLE-ENTRY JOURNAL ENTRY ================= -->
+  <!-- ================= MODAL 2: MULTI-LINE DOUBLE-ENTRY JOURNAL ENTRY (NEW & EDIT) ================= -->
   <div id="journalModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
     <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-3xl overflow-hidden">
       <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
         <div>
-          <h3 class="font-bold text-base">New Double-Entry Journal Entry</h3>
-          <p class="text-[11px] text-slate-400">Record compound entries across any Asset, Liability, Equity, Income, or Expense accounts</p>
+          <h3 id="journalModalTitle" class="font-bold text-base">New Double-Entry Journal Entry</h3>
+          <p class="text-[11px] text-slate-400">Record or edit compound entries across any Asset, Liability, Equity, Income, or Expense accounts</p>
         </div>
         <button onclick="closeModal('journalModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
       </div>
 
       <form onsubmit="submitJournalEntryModal(event)" class="p-6 space-y-4 text-xs">
+        <input type="hidden" id="jeEditId" value="" />
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Journal Date</label>
@@ -988,7 +1033,7 @@
           <div id="jeBalanceStatus" class="font-mono text-xs font-semibold text-emerald-600">Balanced ($0.00 difference)</div>
           <div class="flex gap-2">
             <button type="button" onclick="closeModal('journalModal')" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Cancel</button>
-            <button type="submit" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Post Journal Entry</button>
+            <button type="submit" id="journalSubmitBtn" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Post Journal Entry</button>
           </div>
         </div>
       </form>
@@ -1044,19 +1089,25 @@
             </select>
           </div>
         </div>
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-2 gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
           <div>
             <label id="lblAccOpeningBal" class="block font-semibold text-slate-700 mb-1">Opening Balance ($)</label>
-            <input type="number" step="0.01" id="accOpeningBal" value="0" class="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono" />
+            <input type="number" step="0.01" id="accOpeningBal" value="0" class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono" />
           </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Opening Balance Date (As-Of)</label>
+            <input type="date" id="accOpeningDate" value="2026-01-01" class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono" title="Choose the effective As-Of Date for the Opening Balance (not today's posting date)" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block font-semibold text-slate-700 mb-1">Tax Category</label>
             <input type="text" id="accTaxCat" placeholder="Optional Schedule C / A" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
           </div>
-        </div>
-        <div>
-          <label class="block font-semibold text-slate-700 mb-1">Description</label>
-          <input type="text" id="accDesc" placeholder="Account notes" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Description</label>
+            <input type="text" id="accDesc" placeholder="Account notes" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          </div>
         </div>
         <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
           <button type="button" onclick="closeModal('accountModal')" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold">Cancel</button>
@@ -1068,7 +1119,7 @@
 
   <!-- ================= MODAL 4: GENERAL LEDGER DRILL-DOWN FOR ANY ACCOUNT ================= -->
   <div id="ledgerModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
-    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-5xl max-h-[85vh] flex flex-col overflow-hidden">
       <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
         <div>
           <h3 id="ledgerModalTitle" class="font-bold text-base">Account General Ledger</h3>
@@ -1087,6 +1138,7 @@
               <th class="py-2.5 px-2 text-right">Debit</th>
               <th class="py-2.5 px-2 text-right">Credit</th>
               <th class="py-2.5 px-2 text-right">Running Balance</th>
+              <th class="py-2.5 px-2 text-right">Actions</th>
             </tr>
           </thead>
           <tbody id="ledgerModalBody" class="divide-y divide-slate-100"></tbody>
@@ -1124,10 +1176,77 @@
     </div>
   </div>
 
+  <!-- ================= MODAL 6: IMPORT / BULK SET OPENING BALANCES (.CSV OR TABLE) ================= -->
+  <div id="openingBalanceModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-4xl max-h-[88vh] flex flex-col overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <div>
+          <h3 class="font-bold text-base">Import or Bulk Set Account Opening Balances</h3>
+          <p class="text-[11px] text-slate-400">Upload a CSV schedule or enter opening balances and custom As-Of Dates directly below (auto-balanced via 3010 Opening Balance Equity)</p>
+        </div>
+        <button onclick="closeModal('openingBalanceModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+
+      <div class="p-6 overflow-y-auto flex-1 space-y-4 text-xs">
+        <!-- Top Controls: Default As-Of Date & CSV Upload -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 border border-slate-200">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Default Opening Balance Date (As-Of Date)</label>
+            <div class="flex items-center gap-2">
+              <input type="date" id="obDefaultDate" value="2026-01-01" onchange="applyDefaultDateToAllOpeningRows(this.value)" class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white font-mono" />
+            </div>
+            <p class="text-[10px] text-slate-500 mt-1">Applied to all rows or CSV rows without a specific date</p>
+          </div>
+
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Upload Opening Balances (.CSV)</label>
+            <input type="file" id="obCsvFileInput" accept=".csv,text/csv" onchange="handleOpeningBalanceCSVSelect(event)" class="w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer" />
+            <p class="text-[10px] text-slate-500 mt-1">Columns: Code, Account Name, Type, Opening Balance, Date</p>
+          </div>
+
+          <div class="flex flex-col justify-end gap-1.5">
+            <a href="/api/export/opening-balances-template.csv" class="py-1.5 px-3 rounded-lg bg-white hover:bg-slate-100 border border-slate-300 text-slate-700 font-semibold text-center transition">
+              &darr; Download CSV Template
+            </a>
+            <button type="button" onclick="loadSampleOpeningBalances()" class="py-1.5 px-3 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-emerald-800 font-semibold text-center transition">
+              Load Sample Opening Balances
+            </button>
+          </div>
+        </div>
+
+        <!-- Interactive Account Opening Balance Grid -->
+        <div class="border border-slate-200 rounded-xl overflow-hidden">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-100 border-b border-slate-200 text-slate-600 uppercase text-[11px]">
+              <tr>
+                <th class="py-2.5 px-3">Code</th>
+                <th class="py-2.5 px-3">Account Name</th>
+                <th class="py-2.5 px-3">Type / Subtype</th>
+                <th class="py-2.5 px-3">Opening Balance Date (As-Of)</th>
+                <th class="py-2.5 px-3 text-right">Opening / Target Balance ($)</th>
+              </tr>
+            </thead>
+            <tbody id="openingBalancesGridBody" class="divide-y divide-slate-100 bg-white"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="px-6 py-4 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0 text-xs">
+        <div class="text-slate-600">
+          All opening balances are automatically balanced against <strong class="font-mono text-slate-900">3010 - Opening Balance Equity</strong> on their specified As-Of Date.
+        </div>
+        <div class="flex gap-2">
+          <button type="button" onclick="closeModal('openingBalanceModal')" class="px-4 py-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 font-semibold">Cancel</button>
+          <button type="button" onclick="submitOpeningBalancesModal()" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Save &amp; Import Opening Balances</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Toast Notification -->
   <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2"></div>
 
-  <script src="./standalone.js"></script>
-  <script src="./app.js"></script>
+  <script src="./standalone.js?v=20261019_3"></script>
+  <script src="./app.js?v=20261019_3"></script>
 </body>
 </html>

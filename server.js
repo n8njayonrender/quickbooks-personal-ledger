@@ -18,6 +18,9 @@ const {
   getCashFlowStatement,
   getTaxSummary,
   getMonthlyTrends,
+  parseCSVText,
+  normalizeDate,
+  parseAmount,
   previewCSVImport,
   matchCategorizationRule
 } = require('./src/accounting');
@@ -321,10 +324,92 @@ app.put('/api/transactions/simple/:id', (req, res) => {
   }
 });
 
-// 3. CREATE MULTI-LINE DOUBLE-ENTRY JOURNAL ENTRY
+// 3. CREATE OR UPDATE MULTI-LINE DOUBLE-ENTRY JOURNAL ENTRY
 app.post('/api/journal-entries', (req, res) => {
   try {
     const entryId = createJournalEntry(req.body);
+    res.json({ ok: true, entryId });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.put('/api/journal-entries/:id', (req, res) => {
+  try {
+    const entryId = Number(req.params.id);
+    const existing = db.prepare('SELECT * FROM journal_entries WHERE id = ?').get(entryId);
+    if (!existing) throw new Error('Journal entry not found.');
+
+    const {
+      date = existing.date,
+      memo = existing.memo,
+      payee = existing.payee,
+      reference = existing.reference,
+      source_type = existing.source_type,
+      currency = existing.currency || 'USD',
+      exchange_rate = existing.exchange_rate || 1.0,
+      is_tax_deductible = existing.is_tax_deductible || 0,
+      lines = []
+    } = req.body;
+
+    if (!Array.isArray(lines) || lines.length < 2) {
+      throw new Error('A double-entry journal entry requires at least 2 lines.');
+    }
+
+    const rate = Number(exchange_rate) > 0 ? Number(exchange_rate) : 1.0;
+    let totalDebit = 0;
+    let totalCredit = 0;
+
+    const normalizedLines = lines.map((l) => {
+      const d = round2((Number(l.debit) || 0) * rate);
+      const c = round2((Number(l.credit) || 0) * rate);
+      totalDebit = round2(totalDebit + d);
+      totalCredit = round2(totalCredit + c);
+      return {
+        account_id: Number(l.account_id),
+        description: l.description || memo || '',
+        debit: d,
+        credit: c,
+        reconciled_status: l.reconciled_status || 'UNRECONCILED'
+      };
+    });
+
+    if (totalDebit <= 0 || Math.abs(totalDebit - totalCredit) > 0.01) {
+      throw new Error(`Unbalanced Journal Entry: Debits ($${totalDebit.toFixed(2)}) must equal Credits ($${totalCredit.toFixed(2)}).`);
+    }
+
+    db.exec('BEGIN');
+    try {
+      db.prepare(`
+        UPDATE journal_entries
+        SET date = ?, memo = ?, payee = ?, reference = ?, source_type = ?, currency = ?, exchange_rate = ?, is_tax_deductible = ?
+        WHERE id = ?
+      `).run(
+        date,
+        memo,
+        payee,
+        reference,
+        source_type,
+        currency,
+        rate,
+        is_tax_deductible ? 1 : 0,
+        entryId
+      );
+
+      db.prepare('DELETE FROM journal_lines WHERE journal_entry_id = ?').run(entryId);
+      const lineStmt = db.prepare(`
+        INSERT INTO journal_lines (journal_entry_id, account_id, description, debit, credit, reconciled_status)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `);
+      for (const nl of normalizedLines) {
+        lineStmt.run(entryId, nl.account_id, nl.description, nl.debit, nl.credit, nl.reconciled_status);
+      }
+      db.exec('COMMIT');
+    } catch (inner) {
+      db.exec('ROLLBACK');
+      throw inner;
+    }
+
     res.json({ ok: true, entryId });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -397,7 +482,7 @@ app.delete('/api/journal-entries/:id', (req, res) => {
   }
 });
 
-// 7. CHART OF ACCOUNTS & GENERAL LEDGER DRILL-DOWN
+// 7. CHART OF ACCOUNTS, OPENING BALANCES & GENERAL LEDGER DRILL-DOWN
 app.post('/api/accounts', (req, res) => {
   try {
     const { code, name, type, subtype, currency = 'USD', description = '', tax_category = '', opening_balance = 0, opening_date = '2026-01-01' } = req.body;
@@ -418,6 +503,7 @@ app.post('/api/accounts', (req, res) => {
     const newAccId = Number(result.lastInsertRowid);
 
     const openBal = round2(Number(opening_balance) || 0);
+    const openDateStr = String(opening_date || '2026-01-01').trim() || '2026-01-01';
     if (openBal !== 0) {
       const openEquity = db.prepare("SELECT * FROM accounts WHERE code = '3010'").get();
       if (openEquity) {
@@ -432,7 +518,7 @@ app.post('/api/accounts', (req, res) => {
               { account_id: newAccId, description: 'Opening Balance', debit: 0, credit: Math.abs(openBal) }
             ];
         createJournalEntry({
-          date: opening_date,
+          date: openDateStr,
           memo: `Opening Balance for ${code} - ${name}`,
           payee: 'Opening Balance',
           source_type: 'OPENING_BALANCE',
@@ -461,7 +547,8 @@ app.put('/api/accounts/:id', (req, res) => {
       currency = existing.currency,
       description = existing.description,
       tax_category = existing.tax_category,
-      opening_balance
+      opening_balance,
+      opening_date
     } = req.body;
 
     if (!String(code).trim() || !String(name).trim() || !type) {
@@ -483,6 +570,19 @@ app.put('/api/accounts/:id', (req, res) => {
       accountId
     );
 
+    const effectiveOpenDate = String(opening_date || '').trim();
+    if (effectiveOpenDate) {
+      const openEntries = db.prepare(`
+        SELECT DISTINCT je.id
+        FROM journal_entries je
+        JOIN journal_lines jl ON jl.journal_entry_id = je.id
+        WHERE je.source_type = 'OPENING_BALANCE' AND jl.account_id = ?
+      `).all(accountId);
+      for (const oe of openEntries) {
+        db.prepare('UPDATE journal_entries SET date = ? WHERE id = ?').run(effectiveOpenDate, oe.id);
+      }
+    }
+
     if (opening_balance !== undefined && opening_balance !== null && opening_balance !== '') {
       const currentAcc = getAccountsWithBalances().find((a) => a.id === accountId);
       const currentBal = currentAcc ? currentAcc.balance : 0;
@@ -498,17 +598,17 @@ app.put('/api/accounts/:id', (req, res) => {
           const absDelta = Math.abs(delta);
           const lines = debitTarget
             ? [
-                { account_id: accountId, description: 'Balance Adjustment', debit: absDelta, credit: 0 },
-                { account_id: openEquity.id, description: `Balance Adjustment for ${name}`, debit: 0, credit: absDelta }
+                { account_id: accountId, description: 'Opening Balance Adjustment', debit: absDelta, credit: 0 },
+                { account_id: openEquity.id, description: `Opening Balance Adjustment for ${name}`, debit: 0, credit: absDelta }
               ]
             : [
-                { account_id: openEquity.id, description: `Balance Adjustment for ${name}`, debit: absDelta, credit: 0 },
-                { account_id: accountId, description: 'Balance Adjustment', debit: 0, credit: absDelta }
+                { account_id: openEquity.id, description: `Opening Balance Adjustment for ${name}`, debit: absDelta, credit: 0 },
+                { account_id: accountId, description: 'Opening Balance Adjustment', debit: 0, credit: absDelta }
               ];
           createJournalEntry({
-            date: new Date().toISOString().slice(0, 10),
-            memo: `Balance Adjustment for ${code} - ${name}`,
-            payee: 'Balance Adjustment',
+            date: effectiveOpenDate || (currentAcc && currentAcc.opening_date) || '2026-01-01',
+            memo: `Opening Balance for ${code} - ${name}`,
+            payee: 'Opening Balance',
             source_type: 'OPENING_BALANCE',
             lines
           });
@@ -519,6 +619,142 @@ app.put('/api/accounts/:id', (req, res) => {
     res.json({ ok: true, accountId });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// BULK IMPORT / SET OPENING BALANCES WITH CUSTOM AS-OF DATE
+app.post('/api/accounts/opening-balances-import', (req, res) => {
+  try {
+    const { csvText, rows, items, defaultDate, defaultOpeningDate } = req.body;
+    const fallbackDate = normalizeDate(defaultDate || defaultOpeningDate) || '2026-01-01';
+    let parsedRows = Array.isArray(rows) ? rows : (Array.isArray(items) ? items : []);
+
+    if (csvText && String(csvText).trim()) {
+      const parsed = parseCSVText(csvText);
+      if (parsed.length < 2) throw new Error('CSV must include a header row and at least one account row.');
+      const hdr = parsed[0].map((h) => String(h || '').toLowerCase().trim());
+      const codeIdx = hdr.findIndex((h) => h.includes('code') || h.includes('number') || h === 'id');
+      const nameIdx = hdr.findIndex((h) => h.includes('name') || h.includes('account'));
+      const typeIdx = hdr.findIndex((h) => h === 'type' || h.includes('account type') || h.includes('account_type'));
+      const subIdx = hdr.findIndex((h) => h.includes('sub') || h.includes('category'));
+      const balIdx = hdr.findIndex((h) => h.includes('bal') || h.includes('amount') || h.includes('opening'));
+      const dateIdx = hdr.findIndex((h) => h.includes('date') || h.includes('as of') || h.includes('as_of'));
+      parsedRows = parsed.slice(1).map((r) => ({
+        code: codeIdx >= 0 ? r[codeIdx] : r[0],
+        name: nameIdx >= 0 ? r[nameIdx] : (r[1] || ''),
+        type: typeIdx >= 0 ? r[typeIdx] : 'ASSET',
+        subtype: subIdx >= 0 ? r[subIdx] : '',
+        opening_balance: balIdx >= 0 ? parseAmount(r[balIdx]) : parseAmount(r[2]),
+        opening_date: dateIdx >= 0 && r[dateIdx] ? normalizeDate(r[dateIdx]) : fallbackDate
+      }));
+    }
+
+    if (!Array.isArray(parsedRows) || parsedRows.length === 0) {
+      throw new Error('No opening balance rows provided.');
+    }
+
+    const openEquity = db.prepare("SELECT * FROM accounts WHERE code = '3010'").get() ||
+                       db.prepare("SELECT * FROM accounts WHERE type = 'EQUITY' ORDER BY code ASC LIMIT 1").get();
+    if (!openEquity) throw new Error('Opening Balance Equity account (3010) not found.');
+
+    let updatedCount = 0;
+    let createdAccountsCount = 0;
+
+    for (const item of parsedRows) {
+      const code = String(item.code || '').trim();
+      const name = String(item.name || '').trim();
+      if (!code && !name) continue;
+
+      const rawAmount = typeof item.opening_balance === 'number' ? item.opening_balance : parseAmount(item.opening_balance ?? item.amount ?? 0);
+      const openBal = round2(isNaN(rawAmount) ? 0 : rawAmount);
+      const openDate = normalizeDate(item.opening_date || fallbackDate) || fallbackDate;
+      const accType = String(item.type || 'ASSET').toUpperCase().trim();
+      const accSubtype = String(item.subtype || accType).toUpperCase().trim();
+
+      let acc = db.prepare('SELECT * FROM accounts WHERE code = ?').get(code) ||
+                db.prepare('SELECT * FROM accounts WHERE LOWER(name) = LOWER(?)').get(name);
+
+      if (!acc) {
+        const finalCode = code || String(Math.floor(1000 + Math.random() * 8999));
+        const finalName = name || `Account ${finalCode}`;
+        const ins = db.prepare(`
+          INSERT INTO accounts (code, name, type, subtype, currency, description, tax_category, is_system)
+          VALUES (?, ?, ?, ?, 'USD', ?, ?, 0)
+        `).run(finalCode, finalName, accType, accSubtype, item.description || '', item.tax_category || '');
+        acc = db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(ins.lastInsertRowid));
+        createdAccountsCount++;
+      }
+
+      if (acc.id === openEquity.id) continue;
+
+      const existingOpenEntries = db.prepare(`
+        SELECT DISTINCT je.id
+        FROM journal_entries je
+        JOIN journal_lines jl ON jl.journal_entry_id = je.id
+        WHERE je.source_type = 'OPENING_BALANCE' AND jl.account_id = ?
+      `).all(acc.id);
+
+      for (const oe of existingOpenEntries) {
+        const lineCount = db.prepare('SELECT COUNT(*) AS c FROM journal_lines WHERE journal_entry_id = ?').get(oe.id).c;
+        if (lineCount <= 2) {
+          db.prepare('DELETE FROM journal_entries WHERE id = ?').run(oe.id);
+        }
+      }
+
+      if (Math.abs(openBal) >= 0.01) {
+        const isDebitNormal = acc.type === 'ASSET' || acc.type === 'EXPENSE';
+        const positiveBal = openBal > 0;
+        const debitTarget = (isDebitNormal && positiveBal) || (!isDebitNormal && !positiveBal);
+        const absBal = Math.abs(openBal);
+
+        const lines = debitTarget
+          ? [
+              { account_id: acc.id, description: 'Opening Balance', debit: absBal, credit: 0 },
+              { account_id: openEquity.id, description: `Opening Balance for ${acc.name}`, debit: 0, credit: absBal }
+            ]
+          : [
+              { account_id: openEquity.id, description: `Opening Balance for ${acc.name}`, debit: absBal, credit: 0 },
+              { account_id: acc.id, description: 'Opening Balance', debit: 0, credit: absBal }
+            ];
+
+        createJournalEntry({
+          date: openDate,
+          memo: `Opening Balance for ${acc.code} - ${acc.name}`,
+          payee: 'Opening Balance',
+          source_type: 'OPENING_BALANCE',
+          lines
+        });
+        updatedCount++;
+      }
+    }
+
+    res.json({ ok: true, updatedCount, createdAccountsCount });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/export/opening-balances-template.csv', (req, res) => {
+  try {
+    const accounts = getAccountsWithBalances().filter((a) => a.code !== '3010');
+    const rows = [['Code', 'Account Name', 'Type', 'Subtype', 'Opening Balance', 'Opening Date', 'Tax Category', 'Description']];
+    for (const a of accounts) {
+      rows.push([
+        a.code,
+        `"${String(a.name || '').replace(/"/g, '""')}"`,
+        a.type,
+        a.subtype,
+        a.balance.toFixed(2),
+        a.opening_date || '2026-01-01',
+        `"${String(a.tax_category || '').replace(/"/g, '""')}"`,
+        `"${String(a.description || '').replace(/"/g, '""')}"`
+      ]);
+    }
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="opening_balances_template.csv"');
+    res.send(rows.map((r) => r.join(',')).join('\r\n'));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -641,18 +877,20 @@ app.post('/api/import/csv-preview', (req, res) => {
 
 app.post('/api/import/csv-commit', (req, res) => {
   try {
-    const { filename = 'bank_statement.csv', bankAccountId, rows = [] } = req.body;
-    if (!bankAccountId || !Array.isArray(rows) || rows.length === 0) {
+    const { filename = 'bank_statement.csv', bankAccountId, rows, transactions, autoLearnRules = true } = req.body;
+    const txRows = Array.isArray(rows) ? rows : (Array.isArray(transactions) ? transactions : []);
+    if (!bankAccountId || txRows.length === 0) {
       throw new Error('No transactions selected for import.');
     }
 
     const bankAcc = db.prepare('SELECT * FROM accounts WHERE id = ?').get(Number(bankAccountId));
-    if (!bankAcc) throw new Error('Target bank account not found.');
+    if (!bankAcc) throw new Error('Target account not found.');
 
     let importedCount = 0;
     let skippedCount = 0;
     let totalInflow = 0;
     let totalOutflow = 0;
+    let learnedRulesCount = 0;
 
     const batchRes = db.prepare(`
       INSERT INTO import_batches (filename, account_id, imported_count, skipped_count, total_inflow, total_outflow)
@@ -660,15 +898,22 @@ app.post('/api/import/csv-commit', (req, res) => {
     `).run(filename, bankAcc.id);
     const batchId = Number(batchRes.lastInsertRowid);
 
-    for (const r of rows) {
+    const uncatIds = new Set(
+      db.prepare(`SELECT id FROM accounts WHERE code IN ('5990', '4990')`).all().map((a) => Number(a.id))
+    );
+
+    for (const r of txRows) {
       if (!r.selected || !(Number(r.absAmount) > 0)) {
         skippedCount++;
         continue;
       }
       const amt = round2(Math.abs(Number(r.absAmount)));
-      const txType = r.txType === 'INCOME' ? 'INCOME' : 'EXPENSE';
+      const txType = r.txType === 'INCOME' ? 'INCOME' : r.txType === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE';
       if (txType === 'INCOME') totalInflow = round2(totalInflow + amt);
       else totalOutflow = round2(totalOutflow + amt);
+
+      const rowPayAccId = Number(r.paymentAccountId) || bankAcc.id;
+      const catAccId = Number(r.categoryAccountId);
 
       createSimpleTransaction({
         tx_type: txType,
@@ -676,18 +921,42 @@ app.post('/api/import/csv-commit', (req, res) => {
         amount: amt,
         currency: bankAcc.currency || 'USD',
         exchange_rate: 1.0,
-        payment_account_id: bankAcc.id,
-        category_account_id: Number(r.categoryAccountId),
+        payment_account_id: rowPayAccId,
+        category_account_id: catAccId,
         payee: r.payee || '',
         memo: r.description || '',
         reference: r.reference || '',
         is_tax_deductible: r.isTaxDeductible ? 1 : 0,
         reconciled_status: 'CLEARED',
         import_batch_id: batchId,
-        import_hash: r.importHash || makeImportHash(r.date, r.signedAmount, r.description, bankAcc.id),
+        import_hash: r.importHash || makeImportHash(r.date, r.signedAmount, r.description, rowPayAccId),
         source_type: 'CSV_IMPORT'
       });
       importedCount++;
+
+      // Auto-learn categorization rule from payee if requested and not already covered
+      if (autoLearnRules && catAccId && !uncatIds.has(catAccId) && !r.matchedRule) {
+        const keyword = String(r.payee || '').trim();
+        if (keyword.length >= 3 && keyword.length <= 45 && !/^\d+$/.test(keyword)) {
+          const existingRule = db.prepare(`
+            SELECT id FROM categorization_rules WHERE LOWER(match_value) = LOWER(?)
+          `).get(keyword);
+          if (!existingRule) {
+            db.prepare(`
+              INSERT INTO categorization_rules
+              (name, priority, match_field, match_type, match_value, transaction_type, target_account_id, assign_payee, is_tax_deductible)
+              VALUES (?, 25, 'ANY', 'CONTAINS', ?, 'ANY', ?, ?, ?)
+            `).run(
+              `Auto: ${keyword}`,
+              keyword.toUpperCase(),
+              catAccId,
+              keyword,
+              r.isTaxDeductible ? 1 : 0
+            );
+            learnedRulesCount++;
+          }
+        }
+      }
     }
 
     db.prepare(`
@@ -702,7 +971,8 @@ app.post('/api/import/csv-commit', (req, res) => {
       importedCount,
       skippedCount,
       totalInflow,
-      totalOutflow
+      totalOutflow,
+      learnedRulesCount
     });
   } catch (err) {
     res.status(400).json({ error: err.message });

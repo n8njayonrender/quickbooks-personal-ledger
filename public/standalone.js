@@ -114,7 +114,7 @@
     const mapping = {
       dateCol: -1, descriptionCol: -1, payeeCol: -1,
       amountCol: -1, debitCol: -1, creditCol: -1,
-      typeCol: -1, referenceCol: -1, categoryCol: -1
+      typeCol: -1, referenceCol: -1, categoryCol: -1, accountCol: -1
     };
     headers.forEach((h, idx) => {
       const lower = String(h || '').toLowerCase().trim();
@@ -126,7 +126,8 @@
       else if (mapping.creditCol === -1 && (lower.includes('credit') || lower.includes('deposit') || lower.includes('inflow') || lower.includes('money in'))) mapping.creditCol = idx;
       else if (mapping.typeCol === -1 && (lower === 'type' || lower === 'transaction type' || lower === 'dr/cr')) mapping.typeCol = idx;
       else if (mapping.referenceCol === -1 && (lower.includes('ref') || lower.includes('check') || lower.includes('id') || lower.includes('number'))) mapping.referenceCol = idx;
-      else if (mapping.categoryCol === -1 && (lower.includes('cat') || lower.includes('account'))) mapping.categoryCol = idx;
+      else if (mapping.categoryCol === -1 && (lower.includes('cat') || lower.includes('offset') || lower.includes('gl code') || lower.includes('expense account'))) mapping.categoryCol = idx;
+      else if (mapping.accountCol === -1 && (lower === 'account' || lower === 'bank account' || lower === 'payment account' || lower === 'source account')) mapping.accountCol = idx;
     });
     if (mapping.dateCol === -1 && headers.length > 0) mapping.dateCol = 0;
     if (mapping.descriptionCol === -1 && headers.length > 1) mapping.descriptionCol = 1;
@@ -492,11 +493,15 @@
       let d = 0;
       let c = 0;
       let count = 0;
+      let openingDate = null;
       for (const jl of store.journal_lines) {
         if (jl.account_id !== acc.id) continue;
         const je = entryMap.get(jl.journal_entry_id);
         if (!je) continue;
         count++;
+        if (je.source_type === 'OPENING_BALANCE' && !openingDate) {
+          openingDate = je.date;
+        }
         if (!asOfDate || je.date <= asOfDate) {
           d += jl.debit;
           c += jl.credit;
@@ -507,6 +512,7 @@
         total_debit: round2(d),
         total_credit: round2(c),
         line_count: count,
+        opening_date: openingDate || '2026-01-01',
         balance: computeNormalBalance(acc.type, d, c)
       };
     });
@@ -780,6 +786,42 @@
       return { ok: true, entryId };
     }
 
+    if (path.match(/^\/api\/journal-entries\/\d+$/) && method === 'PUT') {
+      const id = Number(path.split('/')[3]);
+      const existing = store.journal_entries.find((e) => e.id === id);
+      if (!existing) throw new Error('Journal entry not found.');
+      const validLines = (body.lines || []).map((l) => ({
+        account_id: Number(l.account_id),
+        description: l.description || body.memo || '',
+        debit: round2(l.debit || 0),
+        credit: round2(l.credit || 0),
+        foreign_amount: round2(l.foreign_amount || (l.debit || l.credit || 0)),
+        reconciled_status: l.reconciled_status || 'UNRECONCILED'
+      })).filter((l) => l.debit > 0 || l.credit > 0);
+      if (validLines.length < 2) throw new Error('A journal entry requires at least 2 non-zero lines.');
+      const dSum = round2(validLines.reduce((s, l) => s + l.debit, 0));
+      const cSum = round2(validLines.reduce((s, l) => s + l.credit, 0));
+      if (Math.abs(dSum - cSum) > 0.01) {
+        throw new Error(`Double-entry out of balance: Debits ($${dSum}) != Credits ($${cSum})`);
+      }
+      existing.date = body.date || existing.date;
+      existing.memo = body.memo !== undefined ? body.memo : existing.memo;
+      existing.payee = body.payee !== undefined ? body.payee : existing.payee;
+      existing.reference = body.reference !== undefined ? body.reference : existing.reference;
+      existing.source_type = body.source_type || existing.source_type;
+      existing.is_tax_deductible = body.is_tax_deductible !== undefined ? (body.is_tax_deductible ? 1 : 0) : existing.is_tax_deductible;
+      store.journal_lines = store.journal_lines.filter((l) => l.journal_entry_id !== id);
+      for (const l of validLines) {
+        store.journal_lines.push({
+          id: store.nextIds.line++,
+          journal_entry_id: id,
+          ...l
+        });
+      }
+      saveStore(store);
+      return { ok: true, entryId: id };
+    }
+
     if (path.match(/^\/api\/journal-entries\/\d+\/category$/) && method === 'PUT') {
       const id = Number(path.split('/')[3]);
       const je = store.journal_entries.find((e) => e.id === id);
@@ -827,17 +869,20 @@
         is_system: 0,
         is_active: 1
       });
-      if (Number(body.opening_balance) > 0) {
+      if (Number(body.opening_balance) !== 0 && !isNaN(Number(body.opening_balance))) {
         const openEq = store.accounts.find((a) => a.code === '3010') || store.accounts.find((a) => a.type === 'EQUITY');
-        const amt = round2(body.opening_balance);
-        const isDebit = body.type === 'ASSET' || body.type === 'EXPENSE';
-        if (openEq && openEq.id !== id) {
+        const amt = round2(Math.abs(Number(body.opening_balance)));
+        const isPositive = Number(body.opening_balance) > 0;
+        const isDebitNormal = body.type === 'ASSET' || body.type === 'EXPENSE';
+        const debitTarget = (isDebitNormal && isPositive) || (!isDebitNormal && !isPositive);
+        const openDate = normalizeDate(body.opening_date || '2026-01-01');
+        if (openEq && openEq.id !== id && amt > 0) {
           insertJournalEntry(store, {
-            date: '2026-01-01',
+            date: openDate,
             memo: `Opening Balance for ${nameTrim}`,
             payee: 'Opening Balance',
             source_type: 'OPENING_BALANCE',
-            lines: isDebit
+            lines: debitTarget
               ? [{ account_id: id, debit: amt, credit: 0 }, { account_id: openEq.id, debit: 0, credit: amt }]
               : [{ account_id: openEq.id, debit: amt, credit: 0 }, { account_id: id, debit: 0, credit: amt }]
           });
@@ -865,6 +910,16 @@
       acc.tax_category = body.tax_category ?? acc.tax_category;
       acc.description = body.description ?? acc.description;
 
+      const effectiveDate = normalizeDate(body.opening_date || '2026-01-01');
+      const existingOpenJe = store.journal_entries.find((je) =>
+        je.source_type === 'OPENING_BALANCE' &&
+        store.journal_lines.some((jl) => jl.journal_entry_id === je.id && jl.account_id === accId) &&
+        store.journal_lines.filter((jl) => jl.journal_entry_id === je.id).length === 2
+      );
+      if (existingOpenJe && body.opening_date) {
+        existingOpenJe.date = effectiveDate;
+      }
+
       if (body.opening_balance !== undefined && body.opening_balance !== null && body.opening_balance !== '') {
         const currentAcc = getAccountsWithBalances(store).find((a) => a.id === accId);
         const currentBal = currentAcc ? currentAcc.balance : 0;
@@ -875,23 +930,158 @@
                          store.accounts.find((a) => a.type === 'EQUITY' && a.id !== accId);
           if (openEq) {
             const isDebitNormal = acc.type === 'ASSET' || acc.type === 'EXPENSE';
-            const increaseNormal = delta > 0;
-            const debitTarget = (isDebitNormal && increaseNormal) || (!isDebitNormal && !increaseNormal);
-            const absDelta = Math.abs(delta);
-            insertJournalEntry(store, {
-              date: new Date().toISOString().slice(0, 10),
-              memo: `Balance Adjustment for ${acc.code} - ${acc.name}`,
-              payee: 'Balance Adjustment',
-              source_type: 'OPENING_BALANCE',
-              lines: debitTarget
-                ? [{ account_id: accId, debit: absDelta, credit: 0 }, { account_id: openEq.id, debit: 0, credit: absDelta }]
-                : [{ account_id: openEq.id, debit: absDelta, credit: 0 }, { account_id: accId, debit: 0, credit: absDelta }]
-            });
+            if (existingOpenJe) {
+              const nonOpenSum = store.journal_lines
+                .filter((jl) => jl.account_id === accId && jl.journal_entry_id !== existingOpenJe.id)
+                .reduce((accSum, jl) => ({ d: accSum.d + jl.debit, c: accSum.c + jl.credit }), { d: 0, c: 0 });
+              const nonOpenBal = computeNormalBalance(acc.type, nonOpenSum.d, nonOpenSum.c);
+              const neededOpenBal = round2(targetBal - nonOpenBal);
+              store.journal_lines = store.journal_lines.filter((jl) => jl.journal_entry_id !== existingOpenJe.id);
+              if (Math.abs(neededOpenBal) < 0.01) {
+                store.journal_entries = store.journal_entries.filter((je) => je.id !== existingOpenJe.id);
+              } else {
+                const absOpen = Math.abs(neededOpenBal);
+                const incNormal = neededOpenBal > 0;
+                const debitAcc = (isDebitNormal && incNormal) || (!isDebitNormal && !incNormal);
+                existingOpenJe.date = effectiveDate;
+                existingOpenJe.memo = `Opening Balance (${acc.code} - ${acc.name})`;
+                store.journal_lines.push({
+                  id: store.nextIds.line++,
+                  journal_entry_id: existingOpenJe.id,
+                  account_id: accId,
+                  description: existingOpenJe.memo,
+                  debit: debitAcc ? absOpen : 0,
+                  credit: debitAcc ? 0 : absOpen,
+                  foreign_amount: absOpen,
+                  reconciled_status: 'RECONCILED'
+                });
+                store.journal_lines.push({
+                  id: store.nextIds.line++,
+                  journal_entry_id: existingOpenJe.id,
+                  account_id: openEq.id,
+                  description: existingOpenJe.memo,
+                  debit: debitAcc ? 0 : absOpen,
+                  credit: debitAcc ? absOpen : 0,
+                  foreign_amount: absOpen,
+                  reconciled_status: 'RECONCILED'
+                });
+              }
+            } else {
+              const increaseNormal = delta > 0;
+              const debitTarget = (isDebitNormal && increaseNormal) || (!isDebitNormal && !increaseNormal);
+              const absDelta = Math.abs(delta);
+              insertJournalEntry(store, {
+                date: effectiveDate,
+                memo: `Opening Balance (${acc.code} - ${acc.name})`,
+                payee: 'Opening Balance',
+                source_type: 'OPENING_BALANCE',
+                lines: debitTarget
+                  ? [{ account_id: accId, debit: absDelta, credit: 0, reconciled_status: 'RECONCILED' }, { account_id: openEq.id, debit: 0, credit: absDelta, reconciled_status: 'RECONCILED' }]
+                  : [{ account_id: openEq.id, debit: absDelta, credit: 0, reconciled_status: 'RECONCILED' }, { account_id: accId, debit: 0, credit: absDelta, reconciled_status: 'RECONCILED' }]
+              });
+            }
           }
         }
       }
       saveStore(store);
       return { ok: true, accountId: accId };
+    }
+
+    // BULK / CSV OPENING BALANCES IMPORT
+    if (path === '/api/accounts/opening-balances-import' && method === 'POST') {
+      const { csvText, rows = [], defaultDate = '2026-01-01', replaceExistingOpening = true } = body;
+      let items = Array.isArray(rows) ? [...rows] : [];
+      if (csvText && String(csvText).trim()) {
+        const parsed = parseCSVText(csvText);
+        if (parsed.length < 2) throw new Error('CSV must include a header row and at least one account row.');
+        const hdr = parsed[0].map((h) => String(h || '').toLowerCase().trim());
+        const codeIdx = hdr.findIndex((h) => h.includes('code') || h.includes('number') || h === 'id');
+        const nameIdx = hdr.findIndex((h) => h.includes('name') || h.includes('account'));
+        const typeIdx = hdr.findIndex((h) => h === 'type' || h.includes('account type'));
+        const subIdx = hdr.findIndex((h) => h.includes('sub'));
+        const balIdx = hdr.findIndex((h) => h.includes('bal') || h.includes('amount') || h.includes('opening'));
+        const dateIdx = hdr.findIndex((h) => h.includes('date') || h.includes('as of'));
+        items = parsed.slice(1).map((r) => ({
+          code: codeIdx >= 0 ? r[codeIdx] : r[0],
+          name: nameIdx >= 0 ? r[nameIdx] : (r[1] || ''),
+          type: typeIdx >= 0 ? r[typeIdx] : '',
+          subtype: subIdx >= 0 ? r[subIdx] : '',
+          opening_balance: balIdx >= 0 ? parseAmount(r[balIdx]) : parseAmount(r[2]),
+          opening_date: dateIdx >= 0 && r[dateIdx] ? normalizeDate(r[dateIdx]) : normalizeDate(defaultDate)
+        }));
+      }
+      if (!items.length) throw new Error('No opening balance rows provided.');
+      const openEq = store.accounts.find((a) => a.code === '3010') || store.accounts.find((a) => a.type === 'EQUITY');
+      if (!openEq) throw new Error('Opening Balance Equity (3010) account not found.');
+
+      let updatedCount = 0;
+      let createdCount = 0;
+      for (const item of items) {
+        const codeStr = String(item.code || '').trim();
+        const nameStr = String(item.name || '').trim();
+        if (!codeStr && !nameStr && !item.account_id) continue;
+        let acc = item.account_id
+          ? store.accounts.find((a) => a.id === Number(item.account_id))
+          : store.accounts.find((a) => a.code === codeStr || a.name.toLowerCase() === nameStr.toLowerCase());
+        if (!acc && codeStr && nameStr) {
+          const upperType = String(item.type || 'ASSET').toUpperCase().trim();
+          const validType = ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'].includes(upperType) ? upperType : 'ASSET';
+          acc = {
+            id: store.nextIds.account++,
+            code: codeStr,
+            name: nameStr,
+            type: validType,
+            subtype: String(item.subtype || validType).toUpperCase().trim(),
+            currency: 'USD',
+            description: 'Created via Opening Balance Import',
+            tax_category: '',
+            is_system: 0,
+            is_active: 1
+          };
+          store.accounts.push(acc);
+          createdCount++;
+        }
+        if (!acc || acc.id === openEq.id) continue;
+
+        const hasVal = item.opening_balance !== undefined && item.opening_balance !== null && String(item.opening_balance).trim() !== '';
+        if (!hasVal) continue;
+        const targetBal = round2(Number(item.opening_balance) || 0);
+        const openDate = normalizeDate(item.opening_date || defaultDate || '2026-01-01');
+
+        if (replaceExistingOpening) {
+          const existingOpenJes = store.journal_entries.filter((je) =>
+            je.source_type === 'OPENING_BALANCE' &&
+            store.journal_lines.some((jl) => jl.journal_entry_id === je.id && jl.account_id === acc.id) &&
+            store.journal_lines.filter((jl) => jl.journal_entry_id === je.id).length === 2
+          );
+          const delIds = new Set(existingOpenJes.map((j) => j.id));
+          store.journal_entries = store.journal_entries.filter((j) => !delIds.has(j.id));
+          store.journal_lines = store.journal_lines.filter((l) => !delIds.has(l.journal_entry_id));
+        }
+
+        const currentAcc = getAccountsWithBalances(store).find((a) => a.id === acc.id);
+        const currentBal = currentAcc ? currentAcc.balance : 0;
+        const delta = round2(targetBal - currentBal);
+        if (Math.abs(delta) >= 0.01) {
+          const isDebitNormal = acc.type === 'ASSET' || acc.type === 'EXPENSE';
+          const increaseNormal = delta > 0;
+          const debitTarget = (isDebitNormal && increaseNormal) || (!isDebitNormal && !increaseNormal);
+          const absDelta = Math.abs(delta);
+          insertJournalEntry(store, {
+            date: openDate,
+            memo: `Opening Balance (${acc.code} - ${acc.name})`,
+            payee: 'Opening Balance',
+            reference: 'OB-IMPORT',
+            source_type: 'OPENING_BALANCE',
+            lines: debitTarget
+              ? [{ account_id: acc.id, debit: absDelta, credit: 0, reconciled_status: 'RECONCILED' }, { account_id: openEq.id, debit: 0, credit: absDelta, reconciled_status: 'RECONCILED' }]
+              : [{ account_id: openEq.id, debit: absDelta, credit: 0, reconciled_status: 'RECONCILED' }, { account_id: acc.id, debit: 0, credit: absDelta, reconciled_status: 'RECONCILED' }]
+          });
+          updatedCount++;
+        }
+      }
+      saveStore(store);
+      return { ok: true, updatedCount, createdCount };
     }
 
     // DELETE ACCOUNT (both user-created and existing system accounts)
@@ -944,8 +1134,24 @@
       const headers = allRows[0];
       const dataRows = allRows.slice(1);
       const mapping = body.customMapping || autoDetectColumns(headers);
-      const expDefault = store.accounts.find((a) => a.code === '5999') || store.accounts.find((a) => a.type === 'EXPENSE') || store.accounts[0];
-      const incDefault = store.accounts.find((a) => a.code === '4090') || store.accounts.find((a) => a.type === 'INCOME') || store.accounts[0];
+      const expDefault = store.accounts.find((a) => a.code === '5990' || a.code === '5999') || store.accounts.find((a) => a.type === 'EXPENSE') || store.accounts[0];
+      const incDefault = store.accounts.find((a) => a.code === '4990' || a.code === '4090') || store.accounts.find((a) => a.type === 'INCOME') || store.accounts[0];
+
+      const matchAccountFromText = (rawText) => {
+        const s = String(rawText || '').trim();
+        if (!s) return null;
+        const lower = s.toLowerCase();
+        const codeMatch = s.match(/^(\d{3,5})\b/);
+        if (codeMatch) {
+          const byCode = store.accounts.find((a) => a.code === codeMatch[1]);
+          if (byCode) return byCode;
+        }
+        return (
+          store.accounts.find((a) => a.code.toLowerCase() === lower || a.name.toLowerCase() === lower) ||
+          store.accounts.find((a) => lower.includes(a.name.toLowerCase()) || a.name.toLowerCase().includes(lower)) ||
+          null
+        );
+      };
 
       const transactions = dataRows.map((row, idx) => {
         const date = normalizeDate(mapping.dateCol >= 0 ? row[mapping.dateCol] : '');
@@ -953,6 +1159,8 @@
         let payee = mapping.payeeCol >= 0 ? (row[mapping.payeeCol] || '') : '';
         const reference = mapping.referenceCol >= 0 ? (row[mapping.referenceCol] || '') : '';
         const rawType = mapping.typeCol >= 0 ? String(row[mapping.typeCol] || '').toUpperCase() : '';
+        const rawCategory = mapping.categoryCol >= 0 ? String(row[mapping.categoryCol] || '').trim() : '';
+        const rawAccount = mapping.accountCol >= 0 ? String(row[mapping.accountCol] || '').trim() : '';
 
         let signedAmount = 0;
         if (mapping.debitCol >= 0 && mapping.creditCol >= 0 && (row[mapping.debitCol] || row[mapping.creditCol])) {
@@ -961,21 +1169,30 @@
           signedAmount = cred > 0 ? cred : -deb;
         } else if (mapping.amountCol >= 0) {
           signedAmount = parseAmount(row[mapping.amountCol]);
-          if (rawType.includes('DEBIT') || rawType.includes('WITHDRAWAL') || rawType === 'DR') signedAmount = -Math.abs(signedAmount);
-          else if (rawType.includes('CREDIT') || rawType.includes('DEPOSIT') || rawType === 'CR') signedAmount = Math.abs(signedAmount);
+          if (rawType.includes('DEBIT') || rawType.includes('WITHDRAWAL') || rawType === 'DR' || rawType === 'EXPENSE') signedAmount = -Math.abs(signedAmount);
+          else if (rawType.includes('CREDIT') || rawType.includes('DEPOSIT') || rawType === 'CR' || rawType === 'INCOME') signedAmount = Math.abs(signedAmount);
         }
 
         const isInflow = signedAmount > 0;
         const absAmount = round2(Math.abs(signedAmount));
-        const txType = isInflow ? 'INCOME' : 'EXPENSE';
+        let txType = isInflow ? 'INCOME' : 'EXPENSE';
+
+        const csvMatchedAcc = rawCategory ? matchAccountFromText(rawCategory) : null;
+        const csvPaymentAcc = rawAccount ? matchAccountFromText(rawAccount) : null;
+        const rowPaymentAccountId = csvPaymentAcc ? csvPaymentAcc.id : Number(body.bankAccountId);
 
         const rule = store.categorization_rules.find((r) =>
           `${description} ${payee}`.toUpperCase().includes(String(r.match_value || '').toUpperCase())
         );
-        const catAcc = (rule && accMap.get(rule.target_account_id)) || (isInflow ? incDefault : expDefault);
+
+        let catAcc = csvMatchedAcc || (rule && accMap.get(rule.target_account_id)) || (isInflow ? incDefault : expDefault);
+        let matchedRuleName = csvMatchedAcc ? `CSV Column (${csvMatchedAcc.code})` : (rule ? rule.name : null);
+        if (csvMatchedAcc && ['ASSET', 'LIABILITY', 'EQUITY'].includes(csvMatchedAcc.type)) {
+          txType = 'TRANSFER';
+        }
         if (rule && rule.assign_payee && !payee) payee = rule.assign_payee;
 
-        const importHash = makeHash(date, signedAmount, description, body.bankAccountId);
+        const importHash = makeHash(date, signedAmount, description, rowPaymentAccountId);
         const dup = store.journal_entries.find((e) => e.import_hash === importHash);
 
         return {
@@ -987,9 +1204,11 @@
           signedAmount: round2(signedAmount),
           absAmount,
           txType,
+          paymentAccountId: rowPaymentAccountId,
           categoryAccountId: catAcc.id,
           categoryAccountName: `${catAcc.code} - ${catAcc.name}`,
-          matchedRuleName: rule ? rule.name : null,
+          matchedRule: matchedRuleName,
+          matchedRuleName,
           isTaxDeductible: rule ? rule.is_tax_deductible : 0,
           importHash,
           isDuplicate: Boolean(dup),
@@ -1001,7 +1220,9 @@
       return {
         headers, mapping,
         totalRows: transactions.length,
+        validCount: transactions.length,
         duplicateCount: transactions.filter((t) => t.isDuplicate).length,
+        autoCategorizedCount: transactions.filter((t) => Boolean(t.matchedRuleName)).length,
         ruleMatchedCount: transactions.filter((t) => Boolean(t.matchedRuleName)).length,
         transactions
       };
@@ -1009,20 +1230,32 @@
 
     if (path === '/api/import/csv-commit' && method === 'POST') {
       let importedCount = 0;
+      let skippedCount = 0;
       let totalInflow = 0;
       let totalOutflow = 0;
+      let learnedRulesCount = 0;
+      const autoLearnRules = body.autoLearnRules !== false;
       const batchId = store.nextIds.batch++;
+      const uncatCodes = new Set(['5990', '5999', '4990', '4090']);
+
       for (const r of body.rows || []) {
-        if (!r.selected) continue;
+        if (!r.selected || !(Number(r.absAmount) > 0)) {
+          skippedCount++;
+          continue;
+        }
         importedCount++;
-        if (r.txType === 'INCOME') totalInflow = round2(totalInflow + r.absAmount);
+        const txType = r.txType === 'INCOME' ? 'INCOME' : r.txType === 'TRANSFER' ? 'TRANSFER' : 'EXPENSE';
+        if (txType === 'INCOME') totalInflow = round2(totalInflow + r.absAmount);
         else totalOutflow = round2(totalOutflow + r.absAmount);
+        const rowPayAccId = Number(r.paymentAccountId) || Number(body.bankAccountId);
+        const catAccId = Number(r.categoryAccountId);
+
         insertSimpleTransaction(store, {
-          tx_type: r.txType,
+          tx_type: txType,
           date: r.date,
           amount: r.absAmount,
-          payment_account_id: Number(body.bankAccountId),
-          category_account_id: Number(r.categoryAccountId),
+          payment_account_id: rowPayAccId,
+          category_account_id: catAccId,
           payee: r.payee,
           memo: r.description,
           reference: r.reference,
@@ -1032,18 +1265,42 @@
           import_hash: r.importHash,
           source_type: 'CSV_IMPORT'
         });
+
+        const catAccObj = accMap.get(catAccId);
+        if (autoLearnRules && catAccObj && !uncatCodes.has(catAccObj.code) && !r.matchedRule) {
+          const keyword = String(r.payee || '').trim();
+          if (keyword.length >= 3 && keyword.length <= 45 && !/^\d+$/.test(keyword)) {
+            const exists = store.categorization_rules.some((ru) => String(ru.match_value || '').toLowerCase() === keyword.toLowerCase());
+            if (!exists) {
+              store.categorization_rules.push({
+                id: store.nextIds.rule++,
+                name: `Auto: ${keyword}`,
+                priority: 25,
+                match_field: 'ANY',
+                match_type: 'CONTAINS',
+                match_value: keyword.toUpperCase(),
+                transaction_type: 'ANY',
+                target_account_id: catAccId,
+                assign_payee: keyword,
+                is_tax_deductible: r.isTaxDeductible ? 1 : 0,
+                is_active: 1
+              });
+              learnedRulesCount++;
+            }
+          }
+        }
       }
       store.import_batches.unshift({
         id: batchId,
         filename: body.filename || 'bank_statement.csv',
         account_id: Number(body.bankAccountId),
         imported_count: importedCount,
-        skipped_count: 0,
+        skipped_count: skippedCount,
         total_inflow: totalInflow,
         total_outflow: totalOutflow
       });
       saveStore(store);
-      return { ok: true, importedCount, totalInflow, totalOutflow };
+      return { ok: true, importedCount, skippedCount, totalInflow, totalOutflow, learnedRulesCount };
     }
 
     if (path.match(/^\/api\/reconcile\/\d+$/) && method === 'GET') {
@@ -1415,11 +1672,23 @@
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
 
+  function generateOpeningBalancesCsv(store) {
+    const accounts = getAccountsWithBalances(store).filter((a) => ['ASSET', 'LIABILITY', 'EQUITY'].includes(a.type) && a.code !== '3010');
+    const lines = [
+      'Account Code,Account Name,Account Type,Subtype,Opening Balance,Opening Balance Date',
+      ...accounts.map((a) => `${a.code},"${String(a.name).replace(/"/g, '""')}",${a.type},${a.subtype || a.type},${Number(a.balance || 0).toFixed(2)},${a.opening_date || '2026-01-01'}`)
+    ];
+    return lines.join('\r\n');
+  }
+
   const origFetch = window.fetch.bind(window);
   window.fetch = async function (input, init) {
     const urlStr = typeof input === 'string' ? input : input.url;
     if (urlStr.includes('/api/export/sample-bank-csv')) {
       return new Response(SAMPLE_CSV_TEXT, { status: 200, headers: { 'Content-Type': 'text/csv' } });
+    }
+    if (urlStr.includes('/api/export/opening-balances-template.csv')) {
+      return new Response(generateOpeningBalancesCsv(loadStore()), { status: 200, headers: { 'Content-Type': 'text/csv' } });
     }
     if (window.location.hostname.endsWith('github.io') && urlStr.includes('/api/')) {
       try {
@@ -1462,6 +1731,8 @@
 
     if (href.includes('sample-bank-csv')) {
       triggerBlobDownload('sample_bank_statement_oct2026.csv', SAMPLE_CSV_TEXT);
+    } else if (href.includes('opening-balances-template.csv')) {
+      triggerBlobDownload('opening_balances_template.csv', generateOpeningBalancesCsv(store));
     } else if (href.includes('backup.json')) {
       createSnapshotInBrowser(store, `Downloaded Backup (${new Date().toISOString().slice(0, 16).replace('T', ' ')})`);
       triggerBlobDownload(`ledger_full_backup_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(store, null, 2), 'application/json');

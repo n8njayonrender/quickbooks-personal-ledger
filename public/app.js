@@ -168,11 +168,12 @@ function populateAccountSelectors() {
     APP.accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${a.type})</option>`).join('');
   txFilter.value = currentFilterVal;
 
-  // CSV Import Target Account
+  // CSV Import Target Account (All Asset & Liability accounts first, then all accounts so any ledger can be uploaded)
   const impSelect = document.getElementById('importTargetAccount');
   const curImp = impSelect.value;
-  impSelect.innerHTML = bankAndCardAccounts.map((a) =>
-    `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${fmtMoney(a.balance)})</option>`
+  const primaryUploadAccounts = APP.accounts.filter((a) => ['ASSET', 'LIABILITY', 'EQUITY'].includes(a.type));
+  impSelect.innerHTML = primaryUploadAccounts.map((a) =>
+    `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${a.subtype || a.type} • ${fmtMoney(a.balance)})</option>`
   ).join('');
   if (curImp) impSelect.value = curImp;
 
@@ -299,7 +300,7 @@ function renderDashboard() {
   document.getElementById('dashboardRecentTxBody').innerHTML = recentTxs.map((tx) => {
     const isOutflow = tx.source_type === 'EXPENSE' || tx.signed_impact < 0;
     return `
-      <tr class="hover:bg-slate-50 cursor-pointer" onclick="switchTab('transactions')">
+      <tr class="hover:bg-slate-50 cursor-pointer" onclick="openEditTransactionModal(${tx.id})" title="Click to Edit Transaction / Journal Entry">
         <td class="py-2.5 px-2 font-mono text-[11px] text-slate-600">${escapeHtml(tx.date)}</td>
         <td class="py-2.5 px-2">
           <div class="font-semibold text-slate-800">${escapeHtml(tx.payee || tx.memo || tx.entry_number)}</div>
@@ -438,10 +439,6 @@ function renderTransactionsView() {
     return true;
   });
 
-  const categoryOptionsHtml = APP.accounts.map((a) =>
-    `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)}</option>`
-  ).join('');
-
   if (APP.txViewMode === 'SIMPLE') {
     const tbody = document.getElementById('simpleRegisterBody');
     tbody.innerHTML = filtered.map((tx) => {
@@ -478,8 +475,11 @@ function renderTransactionsView() {
             ${fmtMoney(tx.total_amount)}
           </td>
           <td class="py-3 px-3 text-right whitespace-nowrap">
-            <button onclick="openEditTransactionModal(${tx.id})" class="text-slate-600 hover:text-emerald-600 font-semibold px-1.5 py-1 text-xs" title="Edit Transaction">Edit</button>
-            <button onclick="deleteJournalEntry(${tx.id})" class="text-slate-400 hover:text-rose-600 px-1.5 py-1 text-xs" title="Delete Entry">Delete</button>
+            <div class="inline-flex items-center gap-1">
+              <button onclick="openEditTransactionModal(${tx.id})" class="px-2 py-1 rounded border border-slate-300 hover:bg-slate-900 hover:text-white text-slate-700 font-semibold text-[11px] transition" title="Edit Transaction">Edit</button>
+              <button onclick="openEditJournalEntryModal(${tx.id})" class="px-2 py-1 rounded border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-600 hover:text-white text-indigo-700 font-semibold text-[11px] transition" title="Edit Double-Entry Journal Lines (DR/CR)">DR/CR</button>
+              <button onclick="deleteJournalEntry(${tx.id})" class="px-2 py-1 rounded border border-rose-200 bg-rose-50/70 hover:bg-rose-600 hover:text-white text-rose-700 font-semibold text-[11px] transition" title="Delete Entry">Delete</button>
+            </div>
           </td>
         </tr>
       `;
@@ -497,10 +497,10 @@ function renderTransactionsView() {
             <span class="font-semibold text-slate-800">${escapeHtml(tx.payee)}</span>
             <span class="text-slate-500">${escapeHtml(tx.memo)}</span>
           </div>
-          <div class="flex items-center gap-3">
-            <span class="text-[11px] font-mono text-emerald-700 font-semibold">DR = CR (${fmtMoney(tx.total_amount)})</span>
-            <button onclick="openEditTransactionModal(${tx.id})" class="text-slate-700 hover:text-emerald-600 font-semibold hover:underline text-[11px]">Edit</button>
-            <button onclick="deleteJournalEntry(${tx.id})" class="text-rose-600 hover:underline text-[11px]">Delete</button>
+          <div class="flex items-center gap-2">
+            <span class="text-[11px] font-mono text-emerald-700 font-semibold mr-1">DR = CR (${fmtMoney(tx.total_amount)})</span>
+            <button onclick="openEditJournalEntryModal(${tx.id})" class="px-2.5 py-1 rounded border border-slate-300 bg-white hover:bg-slate-900 hover:text-white text-slate-700 font-semibold text-[11px] transition">Edit Journal</button>
+            <button onclick="deleteJournalEntry(${tx.id})" class="px-2.5 py-1 rounded border border-rose-200 bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 font-semibold text-[11px] transition">Delete</button>
           </div>
         </div>
         <table class="w-full text-left border-collapse text-xs">
@@ -568,7 +568,7 @@ async function deleteJournalEntry(entryId) {
   }
 }
 
-// ================= 3. BANK STATEMENT CSV IMPORT & EXPORT =================
+// ================= 3. BANK STATEMENT & TRANSACTION CSV IMPORT & EXPORT =================
 async function handleCSVFileSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
@@ -614,13 +614,9 @@ function renderCSVPreviewUI() {
   if (!p) return;
 
   document.getElementById('csvPreviewSection').classList.remove('hidden');
-  document.getElementById('csvStatTotal').textContent = p.totalRows;
-  document.getElementById('csvStatMatched').textContent = p.ruleMatchedCount;
-  document.getElementById('csvStatDuplicates').textContent = p.duplicateCount;
-
-  // Render Column Mapper Dropdowns
-  const colOptions = `<option value="-1">— None —</option>` +
-    p.headers.map((h, i) => `<option value="${i}">${escapeHtml(h)}</option>`).join('');
+  document.getElementById('csvStatTotal').textContent = p.totalRows ?? p.validCount ?? 0;
+  document.getElementById('csvStatMatched').textContent = p.ruleMatchedCount ?? p.autoCategorizedCount ?? 0;
+  document.getElementById('csvStatDuplicates').textContent = p.duplicateCount ?? 0;
 
   const fields = [
     { key: 'dateCol', label: 'Date Column' },
@@ -628,7 +624,9 @@ function renderCSVPreviewUI() {
     { key: 'payeeCol', label: 'Payee' },
     { key: 'amountCol', label: 'Signed Amount' },
     { key: 'debitCol', label: 'Withdrawal/Debit' },
-    { key: 'creditCol', label: 'Deposit/Credit' }
+    { key: 'creditCol', label: 'Deposit/Credit' },
+    { key: 'categoryCol', label: 'Category / GL Account' },
+    { key: 'accountCol', label: 'Bank / Payment Account' }
   ];
 
   document.getElementById('csvColumnMapGrid').innerHTML = fields.map((f) => `
@@ -636,7 +634,7 @@ function renderCSVPreviewUI() {
       <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">${f.label}</label>
       <select id="map_${f.key}" class="w-full px-2 py-1 rounded border border-slate-300 bg-white text-xs">
         ${p.headers.map((h, i) => `<option value="${i}" ${p.mapping[f.key] === i ? 'selected' : ''}>${escapeHtml(h)}</option>`).join('')}
-        <option value="-1" ${p.mapping[f.key] === -1 ? 'selected' : ''}>— None —</option>
+        <option value="-1" ${(p.mapping[f.key] === undefined || p.mapping[f.key] === -1) ? 'selected' : ''}>— None —</option>
       </select>
     </div>
   `).join('');
@@ -649,37 +647,40 @@ function renderCSVPreviewRows() {
   if (!p) return;
 
   const tbody = document.getElementById('csvPreviewTableBody');
-  tbody.innerHTML = p.transactions.map((t, idx) => `
-    <tr class="${t.isDuplicate ? 'bg-amber-50/60' : 'hover:bg-slate-50'}">
-      <td class="py-2 px-2.5">
-        <input type="checkbox" ${t.selected ? 'checked' : ''} onchange="APP.csvPreviewData.transactions[${idx}].selected = this.checked" />
-      </td>
-      <td class="py-2 px-2 font-mono text-[11px]">${escapeHtml(t.date)}</td>
-      <td class="py-2 px-2 max-w-[200px] truncate" title="${escapeHtml(t.description)}">${escapeHtml(t.description)}</td>
-      <td class="py-2 px-2">
-        <input type="text" value="${escapeHtml(t.payee)}" oninput="APP.csvPreviewData.transactions[${idx}].payee = this.value" class="px-2 py-1 rounded border border-slate-200 text-xs w-36" />
-      </td>
-      <td class="py-2 px-2">
-        <select onchange="APP.csvPreviewData.transactions[${idx}].categoryAccountId = Number(this.value)" class="px-2 py-1 rounded border border-slate-200 bg-white text-xs w-48">
-          ${APP.accounts.map((a) => `<option value="${a.id}" ${a.id === t.categoryAccountId ? 'selected' : ''}>${escapeHtml(a.code)} - ${escapeHtml(a.name)}</option>`).join('')}
-        </select>
-      </td>
-      <td class="py-2 px-2">
-        ${t.isDuplicate
-          ? `<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold text-[10px]">Duplicate (${escapeHtml(t.duplicateEntryNumber)})</span>`
-          : t.matchedRuleName
-          ? `<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px]">Rule: ${escapeHtml(t.matchedRuleName)}</span>`
-          : `<span class="text-[10px] text-slate-400">Default Category</span>`
-        }
-      </td>
-      <td class="py-2 px-2 text-center">
-        <input type="checkbox" ${t.isTaxDeductible ? 'checked' : ''} onchange="APP.csvPreviewData.transactions[${idx}].isTaxDeductible = this.checked ? 1 : 0" />
-      </td>
-      <td class="py-2 px-2 text-right font-mono font-bold ${t.txType === 'INCOME' ? 'text-emerald-600' : 'text-rose-600'}">
-        ${t.txType === 'INCOME' ? '+' : '-'}${fmtMoney(t.absAmount)}
-      </td>
-    </tr>
-  `).join('');
+  tbody.innerHTML = p.transactions.map((t, idx) => {
+    const ruleLabel = t.matchedRuleName || t.matchedRule;
+    return `
+      <tr class="${t.isDuplicate ? 'bg-amber-50/60' : 'hover:bg-slate-50'}">
+        <td class="py-2 px-2.5">
+          <input type="checkbox" ${t.selected ? 'checked' : ''} onchange="APP.csvPreviewData.transactions[${idx}].selected = this.checked" />
+        </td>
+        <td class="py-2 px-2 font-mono text-[11px]">${escapeHtml(t.date)}</td>
+        <td class="py-2 px-2 max-w-[200px] truncate" title="${escapeHtml(t.description)}">${escapeHtml(t.description)}</td>
+        <td class="py-2 px-2">
+          <input type="text" value="${escapeHtml(t.payee)}" oninput="APP.csvPreviewData.transactions[${idx}].payee = this.value" class="px-2 py-1 rounded border border-slate-200 text-xs w-36" />
+        </td>
+        <td class="py-2 px-2">
+          <select onchange="APP.csvPreviewData.transactions[${idx}].categoryAccountId = Number(this.value)" class="px-2 py-1 rounded border border-slate-200 bg-white text-xs w-48">
+            ${APP.accounts.map((a) => `<option value="${a.id}" ${a.id === t.categoryAccountId ? 'selected' : ''}>${escapeHtml(a.code)} - ${escapeHtml(a.name)}</option>`).join('')}
+          </select>
+        </td>
+        <td class="py-2 px-2">
+          ${t.isDuplicate
+            ? `<span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold text-[10px]">Duplicate (${escapeHtml(t.duplicateEntryNumber)})</span>`
+            : ruleLabel
+            ? `<span class="px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-semibold text-[10px]">${escapeHtml(ruleLabel)}</span>`
+            : `<span class="text-[10px] text-slate-400">Select Category &rarr; Auto-Learns</span>`
+          }
+        </td>
+        <td class="py-2 px-2 text-center">
+          <input type="checkbox" ${t.isTaxDeductible ? 'checked' : ''} onchange="APP.csvPreviewData.transactions[${idx}].isTaxDeductible = this.checked ? 1 : 0" />
+        </td>
+        <td class="py-2 px-2 text-right font-mono font-bold ${t.txType === 'INCOME' ? 'text-emerald-600' : 'text-rose-600'}">
+          ${t.txType === 'INCOME' ? '+' : '-'}${fmtMoney(t.absAmount)}
+        </td>
+      </tr>
+    `;
+  }).join('');
 }
 
 function toggleAllCSVPreviewRows(checked) {
@@ -698,9 +699,10 @@ async function repreviewWithCustomMapping() {
     amountCol: Number(document.getElementById('map_amountCol').value),
     debitCol: Number(document.getElementById('map_debitCol').value),
     creditCol: Number(document.getElementById('map_creditCol').value),
+    categoryCol: Number(document.getElementById('map_categoryCol')?.value ?? -1),
+    accountCol: Number(document.getElementById('map_accountCol')?.value ?? -1),
     typeCol: -1,
-    referenceCol: -1,
-    categoryCol: -1
+    referenceCol: -1
   };
   await runCSVPreview(customMapping);
 }
@@ -709,15 +711,18 @@ async function commitCSVImport() {
   if (!APP.csvPreviewData) return;
   try {
     const bankAccountId = Number(document.getElementById('importTargetAccount').value);
+    const autoLearnRules = document.getElementById('csvAutoLearnRules')?.checked !== false;
     const res = await apiFetch('/api/import/csv-commit', {
       method: 'POST',
       body: JSON.stringify({
         filename: APP.csvFilename,
         bankAccountId,
+        autoLearnRules,
         rows: APP.csvPreviewData.transactions
       })
     });
-    showToast(`Imported ${res.importedCount} bank statement transactions into General Ledger!`);
+    const learnedMsg = res.learnedRulesCount > 0 ? ` (+${res.learnedRulesCount} new auto-categorization rule(s) learned!)` : '';
+    showToast(`Imported ${res.importedCount} transactions into General Ledger!${learnedMsg}`);
     document.getElementById('csvPreviewSection').classList.add('hidden');
     APP.csvPreviewData = null;
     await loadBootstrap();
@@ -923,22 +928,42 @@ async function openAccountLedgerModal(accountId) {
     document.getElementById('ledgerModalTitle').textContent = `${data.account.code} — ${data.account.name} (${data.account.type})`;
     document.getElementById('ledgerModalSubtitle').textContent = `Current Normal Balance: ${fmtMoney(data.ending_balance)}`;
 
-    document.getElementById('ledgerModalBody').innerHTML = data.rows.map((r) => `
-      <tr class="hover:bg-slate-50">
-        <td class="py-2.5 px-2 font-mono">${escapeHtml(r.date)}</td>
-        <td class="py-2.5 px-2 font-mono text-slate-500">${escapeHtml(r.entry_number)}</td>
-        <td class="py-2.5 px-2">
-          <div class="font-semibold text-slate-800">${escapeHtml(r.payee || r.description)}</div>
-          <div class="text-[11px] text-slate-400">${escapeHtml(r.memo)}</div>
-        </td>
-        <td class="py-2.5 px-2 text-center font-mono text-[10px]">${escapeHtml(r.reconciled_status)}</td>
-        <td class="py-2.5 px-2 text-right font-mono">${r.debit > 0 ? fmtMoney(r.debit) : '—'}</td>
-        <td class="py-2.5 px-2 text-right font-mono">${r.credit > 0 ? fmtMoney(r.credit) : '—'}</td>
-        <td class="py-2.5 px-2 text-right font-mono font-bold text-slate-900">${fmtMoney(r.running_balance)}</td>
-      </tr>
-    `).join('');
+    document.getElementById('ledgerModalBody').innerHTML = data.rows.map((r) => {
+      const jeId = r.journal_entry_id || r.id;
+      return `
+        <tr class="hover:bg-slate-50">
+          <td class="py-2.5 px-2 font-mono">${escapeHtml(r.date)}</td>
+          <td class="py-2.5 px-2 font-mono text-slate-500">${escapeHtml(r.entry_number)}</td>
+          <td class="py-2.5 px-2">
+            <div class="font-semibold text-slate-800">${escapeHtml(r.payee || r.description)}</div>
+            <div class="text-[11px] text-slate-400">${escapeHtml(r.memo)}</div>
+          </td>
+          <td class="py-2.5 px-2 text-center font-mono text-[10px]">${escapeHtml(r.reconciled_status)}</td>
+          <td class="py-2.5 px-2 text-right font-mono">${r.debit > 0 ? fmtMoney(r.debit) : '—'}</td>
+          <td class="py-2.5 px-2 text-right font-mono">${r.credit > 0 ? fmtMoney(r.credit) : '—'}</td>
+          <td class="py-2.5 px-2 text-right font-mono font-bold text-slate-900">${fmtMoney(r.running_balance)}</td>
+          <td class="py-2.5 px-2 text-right whitespace-nowrap">
+            <div class="inline-flex items-center gap-1">
+              <button onclick="closeModal('ledgerModal'); openEditJournalEntryModal(${jeId});" class="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-900 hover:text-white text-slate-700 font-semibold text-[11px] transition" title="Edit Journal Entry">Edit</button>
+              <button onclick="deleteJournalEntryFromLedger(${jeId}, ${accountId})" class="px-2 py-1 rounded border border-rose-200 bg-rose-50 hover:bg-rose-600 hover:text-white text-rose-700 font-semibold text-[11px] transition" title="Delete Journal Entry">Delete</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
 
     openModal('ledgerModal');
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function deleteJournalEntryFromLedger(entryId, accountId) {
+  try {
+    await apiFetch(`/api/journal-entries/${entryId}`, { method: 'DELETE' });
+    showToast('Journal entry deleted');
+    await loadBootstrap();
+    await openAccountLedgerModal(accountId);
   } catch (err) {
     showToast(err.message, 'error');
   }
@@ -1794,6 +1819,11 @@ function openEditTransactionModal(entryId) {
   const tx = APP.transactions.find((t) => t.id === Number(entryId));
   if (!tx) return;
 
+  // If this entry is a manual JOURNAL entry, OPENING_BALANCE, or has >2 lines, open the full Double-Entry Journal Editor
+  if (tx.source_type === 'JOURNAL' || tx.source_type === 'OPENING_BALANCE' || (tx.lines && tx.lines.length > 2)) {
+    return openEditJournalEntryModal(entryId);
+  }
+
   document.getElementById('simpleTxEditId').value = String(tx.id);
   document.getElementById('simpleTxModalTitle').textContent = `Edit Transaction (${tx.entry_number})`;
   document.getElementById('simpleTxSubmitBtn').textContent = 'Update Transaction';
@@ -1931,8 +1961,18 @@ async function submitSimpleTransaction(event) {
   }
 }
 
-// Multi-Line Double-Entry Journal Modal
+// Multi-Line Double-Entry Journal Modal (New & Edit)
 function openJournalEntryModal() {
+  const editEl = document.getElementById('jeEditId');
+  if (editEl) editEl.value = '';
+  const titleEl = document.getElementById('journalModalTitle');
+  if (titleEl) titleEl.textContent = 'New Double-Entry Journal Entry';
+  const btnEl = document.getElementById('journalSubmitBtn');
+  if (btnEl) btnEl.textContent = 'Post Journal Entry';
+
+  document.getElementById('jeDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('jePayee').value = '';
+  document.getElementById('jeMemo').value = '';
   document.getElementById('jeLinesBody').innerHTML = '';
   addJournalModalLine();
   addJournalModalLine();
@@ -1940,23 +1980,62 @@ function openJournalEntryModal() {
   openModal('journalModal');
 }
 
-function addJournalModalLine() {
+function openEditJournalEntryModal(entryId) {
+  const tx = APP.transactions.find((t) => t.id === Number(entryId));
+  if (!tx) return;
+
+  const editEl = document.getElementById('jeEditId');
+  if (editEl) editEl.value = String(tx.id);
+  const titleEl = document.getElementById('journalModalTitle');
+  if (titleEl) titleEl.textContent = `Edit Double-Entry Journal (${tx.entry_number})`;
+  const btnEl = document.getElementById('journalSubmitBtn');
+  if (btnEl) btnEl.textContent = 'Update Journal Entry';
+
+  document.getElementById('jeDate').value = tx.date || '2026-10-19';
+  document.getElementById('jePayee').value = tx.payee || '';
+  document.getElementById('jeMemo').value = tx.memo || tx.payee || 'Journal Entry';
+
+  const tbody = document.getElementById('jeLinesBody');
+  tbody.innerHTML = '';
+  const lines = tx.lines && tx.lines.length > 0 ? tx.lines : [];
+  if (lines.length === 0) {
+    addJournalModalLine();
+    addJournalModalLine();
+  } else {
+    lines.forEach((l) => {
+      addJournalModalLine({
+        account_id: l.account_id,
+        description: l.description || tx.memo || '',
+        debit: Number(l.debit || 0),
+        credit: Number(l.credit || 0),
+        reconciled_status: l.reconciled_status || 'UNRECONCILED'
+      });
+    });
+  }
+  updateJournalModalTotals();
+  openModal('journalModal');
+}
+
+function addJournalModalLine(prefill = null) {
   const tbody = document.getElementById('jeLinesBody');
   const tr = document.createElement('tr');
+  if (prefill && prefill.reconciled_status) {
+    tr.dataset.reconciledStatus = prefill.reconciled_status;
+  }
   tr.innerHTML = `
     <td class="py-2 px-2">
       <select class="je-line-acc w-full px-2 py-1.5 rounded border border-slate-300 bg-white text-xs">
-        ${APP.accounts.map((a) => `<option value="${a.id}">${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${a.type})</option>`).join('')}
+        ${APP.accounts.map((a) => `<option value="${a.id}" ${prefill && Number(prefill.account_id) === a.id ? 'selected' : ''}>${escapeHtml(a.code)} - ${escapeHtml(a.name)} (${a.type})</option>`).join('')}
       </select>
     </td>
     <td class="py-2 px-2">
-      <input type="text" placeholder="Line description" class="je-line-desc w-full px-2 py-1.5 rounded border border-slate-300 text-xs" />
+      <input type="text" placeholder="Line description" value="${prefill ? escapeHtml(prefill.description || '') : ''}" class="je-line-desc w-full px-2 py-1.5 rounded border border-slate-300 text-xs" />
     </td>
     <td class="py-2 px-2">
-      <input type="number" step="0.01" min="0" placeholder="0.00" oninput="onJeDebitCreditInput(this, 'debit')" class="je-line-debit w-full px-2 py-1.5 rounded border border-slate-300 text-right font-mono text-xs" />
+      <input type="number" step="0.01" min="0" placeholder="0.00" value="${prefill && prefill.debit > 0 ? Number(prefill.debit).toFixed(2) : ''}" oninput="onJeDebitCreditInput(this, 'debit')" class="je-line-debit w-full px-2 py-1.5 rounded border border-slate-300 text-right font-mono text-xs" />
     </td>
     <td class="py-2 px-2">
-      <input type="number" step="0.01" min="0" placeholder="0.00" oninput="onJeDebitCreditInput(this, 'credit')" class="je-line-credit w-full px-2 py-1.5 rounded border border-slate-300 text-right font-mono text-xs" />
+      <input type="number" step="0.01" min="0" placeholder="0.00" value="${prefill && prefill.credit > 0 ? Number(prefill.credit).toFixed(2) : ''}" oninput="onJeDebitCreditInput(this, 'credit')" class="je-line-credit w-full px-2 py-1.5 rounded border border-slate-300 text-right font-mono text-xs" />
     </td>
     <td class="py-2 px-2 text-center">
       <button type="button" onclick="this.closest('tr').remove(); updateJournalModalTotals();" class="text-slate-400 hover:text-rose-600">&times;</button>
@@ -1999,36 +2078,51 @@ function updateJournalModalTotals() {
 async function submitJournalEntryModal(event) {
   event.preventDefault();
   try {
+    const editId = document.getElementById('jeEditId')?.value || '';
+    const existingTx = editId ? APP.transactions.find((t) => t.id === Number(editId)) : null;
     const lines = [];
     document.querySelectorAll('#jeLinesBody tr').forEach((tr) => {
       const account_id = Number(tr.querySelector('.je-line-acc').value);
       const description = tr.querySelector('.je-line-desc').value;
       const debit = parseFloat(tr.querySelector('.je-line-debit').value || '0');
       const credit = parseFloat(tr.querySelector('.je-line-credit').value || '0');
+      const reconciled_status = tr.dataset.reconciledStatus || 'UNRECONCILED';
       if (debit > 0 || credit > 0) {
-        lines.push({ account_id, description, debit, credit });
+        lines.push({ account_id, description, debit, credit, reconciled_status });
       }
     });
 
-    await apiFetch('/api/journal-entries', {
-      method: 'POST',
-      body: JSON.stringify({
-        date: document.getElementById('jeDate').value,
-        payee: document.getElementById('jePayee').value,
-        memo: document.getElementById('jeMemo').value,
-        source_type: 'JOURNAL',
-        lines
-      })
-    });
+    const payload = {
+      date: document.getElementById('jeDate').value,
+      payee: document.getElementById('jePayee').value,
+      memo: document.getElementById('jeMemo').value,
+      source_type: existingTx ? existingTx.source_type : 'JOURNAL',
+      lines
+    };
+
+    if (editId) {
+      await apiFetch(`/api/journal-entries/${editId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      showToast(`Journal Entry ${existingTx ? existingTx.entry_number : ''} updated!`);
+    } else {
+      await apiFetch('/api/journal-entries', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      showToast('Double-Entry Journal Entry posted!');
+    }
+
+    if (document.getElementById('jeEditId')) document.getElementById('jeEditId').value = '';
     closeModal('journalModal');
-    showToast('Double-Entry Journal Entry posted!');
     await loadBootstrap();
   } catch (err) {
     showToast(err.message, 'error');
   }
 }
 
-// New / Edit Account Modal
+// New / Edit Account Modal (with custom Opening Balance Date / As-Of Date)
 function openAccountModal() {
   document.getElementById('accEditId').value = '';
   document.getElementById('accountModalTitle').textContent = 'Add Account to Chart of Accounts';
@@ -2039,6 +2133,9 @@ function openAccountModal() {
   document.getElementById('accType').value = 'ASSET';
   document.getElementById('accSubtype').value = 'BANK';
   document.getElementById('accOpeningBal').value = '0';
+  if (document.getElementById('accOpeningDate')) {
+    document.getElementById('accOpeningDate').value = '2026-01-01';
+  }
   document.getElementById('accTaxCat').value = '';
   document.getElementById('accDesc').value = '';
   openModal('accountModal');
@@ -2051,7 +2148,7 @@ function openEditAccountModal(accountId) {
   document.getElementById('accEditId').value = String(acc.id);
   document.getElementById('accountModalTitle').textContent = `Edit Account (${acc.code} — ${acc.name})`;
   document.getElementById('accountModalSubmitBtn').textContent = 'Save Account Changes';
-  document.getElementById('lblAccOpeningBal').textContent = 'Current / Target Balance ($)';
+  document.getElementById('lblAccOpeningBal').textContent = 'Opening / Target Balance ($)';
 
   document.getElementById('accCode').value = acc.code || '';
   document.getElementById('accName').value = acc.name || '';
@@ -2064,6 +2161,9 @@ function openEditAccountModal(accountId) {
   subSelect.value = acc.subtype || 'BANK';
 
   document.getElementById('accOpeningBal').value = Number(acc.balance || 0).toFixed(2);
+  if (document.getElementById('accOpeningDate')) {
+    document.getElementById('accOpeningDate').value = acc.opening_date || '2026-01-01';
+  }
   document.getElementById('accTaxCat').value = acc.tax_category || '';
   document.getElementById('accDesc').value = acc.description || '';
 
@@ -2080,6 +2180,7 @@ async function submitNewAccount(event) {
       type: document.getElementById('accType').value,
       subtype: document.getElementById('accSubtype').value,
       opening_balance: parseFloat(document.getElementById('accOpeningBal').value || '0'),
+      opening_date: document.getElementById('accOpeningDate')?.value || '2026-01-01',
       tax_category: document.getElementById('accTaxCat').value.trim(),
       description: document.getElementById('accDesc').value.trim()
     };
@@ -2089,18 +2190,140 @@ async function submitNewAccount(event) {
         method: 'PUT',
         body: JSON.stringify(payload)
       });
-      showToast(`Account "${payload.code} - ${payload.name}" updated!`);
+      showToast(`Account "${payload.code} - ${payload.name}" updated (Opening Date: ${payload.opening_date})!`);
     } else {
       await apiFetch('/api/accounts', {
         method: 'POST',
         body: JSON.stringify(payload)
       });
-      showToast(`Account "${payload.code} - ${payload.name}" added to Chart of Accounts!`);
+      showToast(`Account "${payload.code} - ${payload.name}" added (Opening Date: ${payload.opening_date})!`);
     }
 
     closeModal('accountModal');
     document.getElementById('accEditId').value = '';
     event.target.reset();
+    await loadBootstrap();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+// ================= IMPORT / BULK SET OPENING BALANCES MODAL =================
+function openOpeningBalanceModal() {
+  const defaultDate = document.getElementById('obDefaultDate')?.value || '2026-01-01';
+  const eligible = APP.accounts.filter((a) => ['ASSET', 'LIABILITY', 'EQUITY'].includes(a.type) && a.code !== '3010');
+  renderOpeningBalancesGrid(eligible.map((a) => ({
+    account_id: a.id,
+    code: a.code,
+    name: a.name,
+    type: a.type,
+    subtype: a.subtype || a.type,
+    opening_date: a.opening_date || defaultDate,
+    opening_balance: Number(a.balance || 0).toFixed(2)
+  })));
+  openModal('openingBalanceModal');
+}
+
+function renderOpeningBalancesGrid(rows) {
+  const tbody = document.getElementById('openingBalancesGridBody');
+  if (!tbody) return;
+  tbody.innerHTML = rows.map((r) => `
+    <tr class="hover:bg-slate-50" data-acc-id="${r.account_id || ''}" data-code="${escapeHtml(r.code)}" data-name="${escapeHtml(r.name)}" data-type="${escapeHtml(r.type)}" data-subtype="${escapeHtml(r.subtype || r.type)}">
+      <td class="py-2 px-3 font-mono font-bold text-slate-900">${escapeHtml(r.code)}</td>
+      <td class="py-2 px-3 font-semibold text-slate-800">${escapeHtml(r.name)}</td>
+      <td class="py-2 px-3 text-[11px] font-mono text-slate-500">${escapeHtml(r.type)} &bull; ${escapeHtml(r.subtype || r.type)}</td>
+      <td class="py-2 px-3">
+        <input type="date" value="${escapeHtml(r.opening_date || '2026-01-01')}" class="ob-row-date px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono text-xs" />
+      </td>
+      <td class="py-2 px-3 text-right">
+        <input type="number" step="0.01" value="${escapeHtml(String(r.opening_balance ?? '0.00'))}" class="ob-row-bal w-36 px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono text-right font-semibold text-xs" />
+      </td>
+    </tr>
+  `).join('');
+}
+
+function applyDefaultDateToAllOpeningRows(dateVal) {
+  if (!dateVal) return;
+  document.querySelectorAll('#openingBalancesGridBody .ob-row-date').forEach((inp) => {
+    inp.value = dateVal;
+  });
+}
+
+async function handleOpeningBalanceCSVSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const csvText = await file.text();
+    const defaultDate = document.getElementById('obDefaultDate')?.value || '2026-01-01';
+    const res = await apiFetch('/api/accounts/opening-balances-import', {
+      method: 'POST',
+      body: JSON.stringify({
+        csvText,
+        defaultDate,
+        replaceExistingOpening: true
+      })
+    });
+    event.target.value = '';
+    closeModal('openingBalanceModal');
+    showToast(`Imported opening balances from CSV (${res.updatedCount} updated, ${res.createdCount || 0} created)!`);
+    await loadBootstrap();
+  } catch (err) {
+    showToast('Opening balance CSV import failed: ' + err.message, 'error');
+  }
+}
+
+function loadSampleOpeningBalances() {
+  const defaultDate = document.getElementById('obDefaultDate')?.value || '2026-01-01';
+  const sampleMap = {
+    '1010': '18500.00',
+    '1020': '45000.00',
+    '1030': '112000.00',
+    '1200': '0.00',
+    '1510': '580000.00',
+    '2010': '1450.00',
+    '2100': '0.00',
+    '2510': '342000.00'
+  };
+  document.querySelectorAll('#openingBalancesGridBody tr').forEach((tr) => {
+    const code = tr.dataset.code;
+    const balInput = tr.querySelector('.ob-row-bal');
+    const dateInput = tr.querySelector('.ob-row-date');
+    if (balInput && sampleMap[code] !== undefined) {
+      balInput.value = sampleMap[code];
+    }
+    if (dateInput) {
+      dateInput.value = defaultDate;
+    }
+  });
+  showToast('Sample Opening Balances loaded into grid! Click "Save & Import Opening Balances" to apply.');
+}
+
+async function submitOpeningBalancesModal() {
+  try {
+    const defaultDate = document.getElementById('obDefaultDate')?.value || '2026-01-01';
+    const rows = [];
+    document.querySelectorAll('#openingBalancesGridBody tr').forEach((tr) => {
+      rows.push({
+        account_id: tr.dataset.accId ? Number(tr.dataset.accId) : undefined,
+        code: tr.dataset.code,
+        name: tr.dataset.name,
+        type: tr.dataset.type,
+        subtype: tr.dataset.subtype,
+        opening_date: tr.querySelector('.ob-row-date')?.value || defaultDate,
+        opening_balance: parseFloat(tr.querySelector('.ob-row-bal')?.value || '0')
+      });
+    });
+
+    const res = await apiFetch('/api/accounts/opening-balances-import', {
+      method: 'POST',
+      body: JSON.stringify({
+        rows,
+        defaultDate,
+        replaceExistingOpening: true
+      })
+    });
+    closeModal('openingBalanceModal');
+    showToast(`Saved opening balances for ${res.updatedCount} account(s) with custom As-Of Dates!`);
     await loadBootstrap();
   } catch (err) {
     showToast(err.message, 'error');
