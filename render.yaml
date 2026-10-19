@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: quickbooks-personal-ledger
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 3456
+      - key: DATA_DIR
+        value: /app/data
+      - key: APP_PASSWORD
+        sync: false
+    disk:
+      name: ledger-sqlite-data
+      mountPath: /app/data
+      sizeGB: 1

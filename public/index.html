@@ -1,0 +1,1054 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuickBooks Personal Pro — Full Double-Entry Accounting & Personal Finance</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="bg-slate-50 text-slate-800 antialiased selection:bg-emerald-600 selection:text-white">
+  <div class="flex h-screen overflow-hidden">
+    <!-- Left Sidebar (QuickBooks Dark Emerald/Slate Theme) -->
+    <aside class="w-64 bg-slate-900 text-slate-200 flex flex-col justify-between shrink-0 border-r border-slate-800 select-none print:hidden">
+      <div>
+        <!-- Brand Header -->
+        <div class="px-5 py-4 flex items-center gap-3 border-b border-slate-800">
+          <div class="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center text-slate-950 font-bold text-lg shadow-sm">
+            QB
+          </div>
+          <div>
+            <div class="font-bold text-white text-sm tracking-tight leading-tight" id="brandOrgName">Personal Ledger Pro</div>
+            <div class="text-[11px] text-emerald-400 font-medium flex items-center gap-1">
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 inline-block"></span>
+              Double-Entry Accounting
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Action Button (+ New) -->
+        <div class="p-3.5">
+          <button onclick="openNewTransactionModal('EXPENSE')" class="w-full py-2.5 px-4 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-semibold text-sm shadow transition flex items-center justify-center gap-2">
+            <svg class="w-4 h-4 stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+            <span>New Transaction</span>
+          </button>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav class="px-2.5 space-y-0.5 text-sm font-medium" id="sidebarNav">
+          <button data-tab="dashboard" onclick="switchTab('dashboard')" class="nav-btn active w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-left">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+            <span>Dashboard</span>
+          </button>
+
+          <button data-tab="transactions" onclick="switchTab('transactions')" class="nav-btn w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition text-left">
+            <span class="flex items-center gap-3">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+              <span>Transactions & Journal</span>
+            </span>
+            <span id="navTxCount" class="text-[11px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 font-mono">0</span>
+          </button>
+
+          <button data-tab="import-export" onclick="switchTab('import-export')" class="nav-btn w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition text-left">
+            <span class="flex items-center gap-3">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+              <span>Bank Import & Export</span>
+            </span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold">CSV</span>
+          </button>
+
+          <button data-tab="accounts" onclick="switchTab('accounts')" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-left">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+            <span>Chart of Accounts</span>
+          </button>
+
+          <button data-tab="reconcile" onclick="switchTab('reconcile')" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-left">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span>Reconcile & Rules</span>
+          </button>
+
+          <button data-tab="reports" onclick="switchTab('reports')" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-left">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+            <span>Financial Reports</span>
+          </button>
+
+          <button data-tab="budgets" onclick="switchTab('budgets')" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-left">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span>Budgets & Goals</span>
+          </button>
+
+          <button data-tab="invoices" onclick="switchTab('invoices')" class="nav-btn w-full flex items-center justify-between px-3 py-2.5 rounded-lg transition text-left">
+            <span class="flex items-center gap-3">
+              <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span>Invoices, Bills & Recurring</span>
+            </span>
+            <span id="navOpenDocsCount" class="text-[11px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-mono">0</span>
+          </button>
+
+          <button data-tab="settings" onclick="switchTab('settings')" class="nav-btn w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition text-left">
+            <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+            <span>Multi-Currency & Settings</span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Accounting Equation Verification Footer -->
+      <div class="p-3.5 border-t border-slate-800 bg-slate-950/60 text-xs space-y-1.5">
+        <div class="flex items-center justify-between">
+          <span class="text-slate-400">Accounting Status</span>
+          <span id="sidebarBalancedBadge" class="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-300">BALANCED</span>
+        </div>
+        <div class="text-[11px] text-slate-400 font-mono truncate">Assets = Liabilities + Equity</div>
+        <div class="pt-1 flex gap-1.5">
+          <a href="/api/export/transactions.csv" class="flex-1 text-center py-1.5 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition">Export CSV</a>
+          <a href="/api/export/backup.json" class="flex-1 text-center py-1.5 px-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-[11px] font-medium transition">Backup JSON</a>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col overflow-hidden">
+      <!-- Top Header Bar -->
+      <header class="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0 print:hidden">
+        <div class="flex items-center gap-4">
+          <h1 id="pageTitle" class="text-lg font-bold text-slate-900">Executive Financial Dashboard</h1>
+          <span id="baseCurrencyBadge" class="text-xs font-mono px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200">Base: USD ($)</span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <button onclick="switchTab('import-export')" class="px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs flex items-center gap-1.5 transition">
+            <svg class="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            <span>Import Bank CSV</span>
+          </button>
+          <button onclick="openJournalEntryModal()" class="px-3.5 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs flex items-center gap-1.5 transition">
+            <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <span>+ Journal Entry (DR/CR)</span>
+          </button>
+          <button onclick="openNewTransactionModal('EXPENSE')" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs flex items-center gap-1.5 shadow-sm transition">
+            <span>+ Record Transaction</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Scrollable Views Container -->
+      <main class="flex-1 overflow-y-auto p-6 space-y-6" id="mainContainer">
+
+        <!-- ================= VIEW 1: DASHBOARD ================= -->
+        <section id="view-dashboard" class="tab-view space-y-6">
+          <!-- KPI Summary Strip -->
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4" id="dashboardKpiGrid"></div>
+
+          <!-- Charts Row -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h2 class="font-bold text-slate-900 text-sm">Income vs. Expenses & Net Cash Flow</h2>
+                  <p class="text-xs text-slate-500">Double-entry verified monthly performance</p>
+                </div>
+                <button onclick="switchTab('reports')" class="text-xs text-emerald-600 hover:text-emerald-700 font-semibold">Full P&L Report &rarr;</button>
+              </div>
+              <div class="h-64">
+                <canvas id="cashFlowChart"></canvas>
+              </div>
+            </div>
+
+            <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div class="flex items-center justify-between mb-4">
+                <div>
+                  <h2 class="font-bold text-slate-900 text-sm">YTD Expense Breakdown</h2>
+                  <p class="text-xs text-slate-500">Top spending categories</p>
+                </div>
+                <button onclick="switchTab('budgets')" class="text-xs text-emerald-600 hover:text-emerald-700 font-semibold">Budgets &rarr;</button>
+              </div>
+              <div class="h-64 flex items-center justify-center">
+                <canvas id="expenseDonutChart"></canvas>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bank & Asset Balances + Recent Transactions + Goals -->
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Bank, Investment & Credit Accounts -->
+            <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm flex flex-col justify-between">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <h2 class="font-bold text-slate-900 text-sm">Bank, Investment & Credit Accounts</h2>
+                  <button onclick="switchTab('accounts')" class="text-xs text-emerald-600 hover:underline font-medium">Chart of Accounts</button>
+                </div>
+                <div id="dashboardAccountsList" class="divide-y divide-slate-100 text-sm"></div>
+              </div>
+              <div class="pt-4 mt-4 border-t border-slate-100 flex gap-2">
+                <button onclick="switchTab('reconcile')" class="flex-1 py-2 px-3 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">Reconcile Accounts</button>
+                <button onclick="openAccountModal()" class="flex-1 py-2 px-3 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition">+ Add Account</button>
+              </div>
+            </div>
+
+            <!-- Recent Transactions -->
+            <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
+              <div class="flex items-center justify-between mb-3">
+                <div>
+                  <h2 class="font-bold text-slate-900 text-sm">Recent Ledger Transactions</h2>
+                  <p class="text-xs text-slate-500">Click any entry to inspect its underlying Debits & Credits</p>
+                </div>
+                <button onclick="switchTab('transactions')" class="text-xs text-emerald-600 hover:underline font-semibold">View All Transactions &rarr;</button>
+              </div>
+              <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[11px]">
+                      <th class="py-2.5 px-2">Date</th>
+                      <th class="py-2.5 px-2">Payee / Memo</th>
+                      <th class="py-2.5 px-2">Account</th>
+                      <th class="py-2.5 px-2">Category</th>
+                      <th class="py-2.5 px-2 text-right">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody id="dashboardRecentTxBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= VIEW 2: TRANSACTIONS & GENERAL JOURNAL (HYBRID) ================= -->
+        <section id="view-transactions" class="tab-view hidden space-y-5">
+          <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
+            <!-- Mode Switcher: Simple View vs Double-Entry Journal View -->
+            <div class="inline-flex rounded-lg bg-slate-100 p-1 border border-slate-200">
+              <button id="btnModeSimple" onclick="setTransactionViewMode('SIMPLE')" class="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-white text-slate-900 shadow-sm transition">
+                Simple Register View
+              </button>
+              <button id="btnModeJournal" onclick="setTransactionViewMode('JOURNAL')" class="px-3.5 py-1.5 rounded-md text-xs font-semibold text-slate-600 hover:text-slate-900 transition">
+                Double-Entry Journal View (DR / CR)
+              </button>
+            </div>
+
+            <!-- Filters -->
+            <div class="flex flex-wrap items-center gap-2.5">
+              <input type="text" id="txSearchInput" oninput="renderTransactionsView()" placeholder="Search payee, memo, JE-#..." class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-52 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+              <select id="txAccountFilter" onchange="renderTransactionsView()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white">
+                <option value="">All Accounts</option>
+              </select>
+              <select id="txTypeFilter" onchange="renderTransactionsView()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white">
+                <option value="">All Types</option>
+                <option value="EXPENSE">Expenses</option>
+                <option value="INCOME">Income / Deposits</option>
+                <option value="TRANSFER">Transfers</option>
+                <option value="CSV_IMPORT">Bank CSV Imports</option>
+                <option value="INVOICE">Invoices</option>
+                <option value="BILL">Bills</option>
+                <option value="JOURNAL">Manual Journal Entries</option>
+                <option value="OPENING_BALANCE">Opening Balances</option>
+              </select>
+              <a href="/api/export/transactions.csv" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition">
+                Download CSV
+              </a>
+            </div>
+          </div>
+
+          <!-- Simple Register Table -->
+          <div id="simpleRegisterContainer" class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[11px]">
+                    <th class="py-3 px-3">Date / Entry #</th>
+                    <th class="py-3 px-3">Type</th>
+                    <th class="py-3 px-3">Payee & Memo</th>
+                    <th class="py-3 px-3">Payment / Bank Account</th>
+                    <th class="py-3 px-3">Category / Split Account (Inline Edit)</th>
+                    <th class="py-3 px-3 text-center">Tax Ded.</th>
+                    <th class="py-3 px-3 text-center">Status</th>
+                    <th class="py-3 px-3 text-right">Amount</th>
+                    <th class="py-3 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="simpleRegisterBody" class="divide-y divide-slate-100"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Double-Entry General Journal Table -->
+          <div id="doubleEntryJournalContainer" class="hidden space-y-3"></div>
+        </section>
+
+        <!-- ================= VIEW 3: BANK STATEMENT IMPORT & EXPORT CENTER ================= -->
+        <section id="view-import-export" class="tab-view hidden space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left 2 Columns: Interactive Bank CSV Importer -->
+            <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 class="text-base font-bold text-slate-900">Import Bank or Credit Card Statement (.CSV)</h2>
+                  <p class="text-xs text-slate-500">Smart column auto-detection, duplicate guard, and automatic categorization rules</p>
+                </div>
+                <div class="flex items-center gap-2">
+                  <button onclick="loadSampleCSVIntoImporter()" class="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold text-xs transition">
+                    Try Instant Sample Statement
+                  </button>
+                  <a href="/api/export/sample-bank-csv" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-medium text-xs transition">
+                    Download Sample CSV
+                  </a>
+                </div>
+              </div>
+
+              <!-- Step 1: Select Bank/Card Account & Upload File -->
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1.5">1. Select Target Bank or Credit Card Account</label>
+                  <select id="importTargetAccount" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500"></select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1.5">2. Upload Bank Statement CSV File</label>
+                  <input type="file" id="csvFileInput" accept=".csv,text/csv" onchange="handleCSVFileSelect(event)" class="w-full text-xs text-slate-600 file:mr-3 file:py-2 file:px-3.5 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-emerald-600 file:text-white hover:file:bg-emerald-700 cursor-pointer" />
+                </div>
+              </div>
+
+              <!-- Step 2: Interactive Column Mapper & Preview (Hidden until CSV loaded) -->
+              <div id="csvPreviewSection" class="hidden space-y-4 pt-2 border-t border-slate-200">
+                <div class="bg-slate-50 rounded-lg p-3.5 border border-slate-200 space-y-3">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-slate-800 uppercase tracking-wider">Column Mapping Auto-Detected</span>
+                    <button onclick="repreviewWithCustomMapping()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-white text-[11px] font-semibold">Re-Map Columns</button>
+                  </div>
+                  <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2.5 text-xs" id="csvColumnMapGrid"></div>
+                </div>
+
+                <!-- Summary Bar & Commit Button -->
+                <div class="flex flex-wrap items-center justify-between gap-3 bg-emerald-50/80 border border-emerald-200 rounded-lg p-3.5">
+                  <div class="flex flex-wrap items-center gap-4 text-xs">
+                    <div><span class="text-slate-500">Rows Detected:</span> <strong id="csvStatTotal" class="font-mono text-slate-900">0</strong></div>
+                    <div><span class="text-slate-500">Auto-Categorized by Rules:</span> <strong id="csvStatMatched" class="font-mono text-emerald-700">0</strong></div>
+                    <div><span class="text-slate-500">Duplicates Flagged:</span> <strong id="csvStatDuplicates" class="font-mono text-amber-700">0</strong></div>
+                  </div>
+                  <button onclick="commitCSVImport()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition">
+                    Commit Selected to General Ledger
+                  </button>
+                </div>
+
+                <!-- Preview Table -->
+                <div class="overflow-x-auto max-h-96 border border-slate-200 rounded-lg">
+                  <table class="w-full text-left border-collapse text-xs">
+                    <thead class="bg-slate-100 sticky top-0 border-b border-slate-200 text-slate-600 text-[11px] uppercase">
+                      <tr>
+                        <th class="py-2.5 px-2.5"><input type="checkbox" id="csvSelectAll" checked onchange="toggleAllCSVPreviewRows(this.checked)" /></th>
+                        <th class="py-2.5 px-2">Date</th>
+                        <th class="py-2.5 px-2">Description</th>
+                        <th class="py-2.5 px-2">Payee</th>
+                        <th class="py-2.5 px-2">Category Account</th>
+                        <th class="py-2.5 px-2">Rule / Status</th>
+                        <th class="py-2.5 px-2 text-center">Tax Ded.</th>
+                        <th class="py-2.5 px-2 text-right">Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody id="csvPreviewTableBody" class="divide-y divide-slate-100 bg-white"></tbody>
+                  </table>
+                </div>
+              </div>
+
+              <!-- Past Import History -->
+              <div class="pt-4 border-t border-slate-100">
+                <h3 class="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2.5">Recent Statement Upload Batches</h3>
+                <div id="importBatchesList" class="space-y-2 text-xs"></div>
+              </div>
+            </div>
+
+            <!-- Right Column: Export & Full Backup Center -->
+            <div class="space-y-6">
+              <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+                <div>
+                  <h2 class="text-base font-bold text-slate-900">Download & Export Center</h2>
+                  <p class="text-xs text-slate-500">Export accounting schedules, general ledger CSVs, or full JSON database backups</p>
+                </div>
+
+                <div class="space-y-2 text-xs">
+                  <a href="/api/export/transactions.csv" class="w-full p-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30 flex items-center justify-between transition">
+                    <div>
+                      <div class="font-semibold text-slate-800">General Ledger & Transactions (.CSV)</div>
+                      <div class="text-slate-500 text-[11px]">Every journal entry, debit, credit, payee & reconciliation status</div>
+                    </div>
+                    <span class="px-2 py-1 rounded bg-slate-100 font-mono text-[11px] text-slate-700">CSV &darr;</span>
+                  </a>
+
+                  <a href="/api/export/report.csv?type=pnl&startDate=2026-01-01&endDate=2026-12-31" class="w-full p-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30 flex items-center justify-between transition">
+                    <div>
+                      <div class="font-semibold text-slate-800">Profit & Loss Statement (.CSV)</div>
+                      <div class="text-slate-500 text-[11px]">YTD Revenue, Operating Expenses & Net Savings</div>
+                    </div>
+                    <span class="px-2 py-1 rounded bg-slate-100 font-mono text-[11px] text-slate-700">CSV &darr;</span>
+                  </a>
+
+                  <a href="/api/export/report.csv?type=balance-sheet&asOfDate=2026-12-31" class="w-full p-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30 flex items-center justify-between transition">
+                    <div>
+                      <div class="font-semibold text-slate-800">Balance Sheet (.CSV)</div>
+                      <div class="text-slate-500 text-[11px]">Assets, Liabilities, Retained Earnings & Net Worth</div>
+                    </div>
+                    <span class="px-2 py-1 rounded bg-slate-100 font-mono text-[11px] text-slate-700">CSV &darr;</span>
+                  </a>
+
+                  <a href="/api/export/report.csv?type=trial-balance&asOfDate=2026-12-31" class="w-full p-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30 flex items-center justify-between transition">
+                    <div>
+                      <div class="font-semibold text-slate-800">Trial Balance (.CSV)</div>
+                      <div class="text-slate-500 text-[11px]">Full account Debit & Credit verification table</div>
+                    </div>
+                    <span class="px-2 py-1 rounded bg-slate-100 font-mono text-[11px] text-slate-700">CSV &darr;</span>
+                  </a>
+
+                  <a href="/api/export/report.csv?type=tax-summary&startDate=2026-01-01&endDate=2026-12-31" class="w-full p-3 rounded-lg border border-slate-200 hover:border-emerald-500 hover:bg-emerald-50/30 flex items-center justify-between transition">
+                    <div>
+                      <div class="font-semibold text-slate-800">Tax Summary & Deductions (.CSV)</div>
+                      <div class="text-slate-500 text-[11px]">Taxable income, deductible expenses & tax paid</div>
+                    </div>
+                    <span class="px-2 py-1 rounded bg-slate-100 font-mono text-[11px] text-slate-700">CSV &darr;</span>
+                  </a>
+                </div>
+
+                <!-- Full Backup Export & Restore -->
+                <div class="pt-4 border-t border-slate-200 space-y-3">
+                  <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Full Accounting Book Backup (.JSON)</h3>
+                  <a href="/api/export/backup.json" class="w-full py-2.5 px-4 rounded-lg bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs flex items-center justify-center gap-2 transition">
+                    <span>Download Complete Backup (.JSON)</span>
+                  </a>
+                  <div class="pt-2">
+                    <label class="block text-[11px] font-semibold text-slate-600 mb-1">Restore Book from Backup (.JSON):</label>
+                    <input type="file" accept=".json,application/json" onchange="handleBackupRestoreFile(event)" class="w-full text-xs text-slate-600 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-200 file:text-slate-800 hover:file:bg-slate-300 cursor-pointer" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= VIEW 4: CHART OF ACCOUNTS & GENERAL LEDGER ================= -->
+        <section id="view-accounts" class="tab-view hidden space-y-5">
+          <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-1.5" id="coaTypeFilterBar">
+              <button onclick="setCOAFilter('ALL')" data-coa="ALL" class="coa-filter-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-white">All Accounts</button>
+              <button onclick="setCOAFilter('ASSET')" data-coa="ASSET" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Assets (1000s)</button>
+              <button onclick="setCOAFilter('LIABILITY')" data-coa="LIABILITY" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Liabilities (2000s)</button>
+              <button onclick="setCOAFilter('EQUITY')" data-coa="EQUITY" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Equity (3000s)</button>
+              <button onclick="setCOAFilter('INCOME')" data-coa="INCOME" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Income (4000s)</button>
+              <button onclick="setCOAFilter('EXPENSE')" data-coa="EXPENSE" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Expenses (5000s)</button>
+            </div>
+            <button onclick="openAccountModal()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition">
+              + New Account
+            </button>
+          </div>
+
+          <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[11px]">
+                  <th class="py-3 px-4">Code</th>
+                  <th class="py-3 px-4">Account Name</th>
+                  <th class="py-3 px-4">Type / Subtype</th>
+                  <th class="py-3 px-4">Tax Schedule / Notes</th>
+                  <th class="py-3 px-4 text-right">Total Debits</th>
+                  <th class="py-3 px-4 text-right">Total Credits</th>
+                  <th class="py-3 px-4 text-right">Normal Balance</th>
+                  <th class="py-3 px-4 text-right">General Ledger</th>
+                </tr>
+              </thead>
+              <tbody id="coaTableBody" class="divide-y divide-slate-100"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- ================= VIEW 5: BANK RECONCILIATION & AUTO-CATEGORIZATION RULES ================= -->
+        <section id="view-reconcile" class="tab-view hidden space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Bank Reconciliation Workspace (2 cols) -->
+            <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
+              <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 class="text-base font-bold text-slate-900">Bank & Credit Card Reconciliation</h2>
+                  <p class="text-xs text-slate-500">Match your ledger against your monthly bank statement to lock verified balances</p>
+                </div>
+                <button onclick="matchStatementTargetBalance()" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition">
+                  Set Target = Cleared Balance
+                </button>
+              </div>
+
+              <!-- Account, Statement Date & Statement Ending Balance -->
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Account to Reconcile</label>
+                  <select id="reconcileAccountSelect" onchange="loadReconciliationWorkspace()" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-medium"></select>
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Statement Ending Date</label>
+                  <input type="date" id="reconcileStatementDate" value="2026-10-31" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs" />
+                </div>
+                <div>
+                  <label class="block text-xs font-semibold text-slate-700 mb-1">Statement Ending Balance ($)</label>
+                  <input type="number" step="0.01" id="reconcileTargetBalance" oninput="updateReconcileMathUI()" class="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs font-mono" placeholder="0.00" />
+                </div>
+              </div>
+
+              <!-- Live Reconciliation Equation Banner -->
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-xs">
+                <div>
+                  <div class="text-slate-500 text-[11px]">Reconciled Beginning</div>
+                  <div id="recBegBalance" class="font-mono font-bold text-sm text-slate-900 mt-0.5">$0.00</div>
+                </div>
+                <div>
+                  <div class="text-slate-500 text-[11px]">+ Cleared Net Change</div>
+                  <div id="recClearedNet" class="font-mono font-bold text-sm text-emerald-700 mt-0.5">$0.00</div>
+                </div>
+                <div>
+                  <div class="text-slate-500 text-[11px]">= Cleared Ending Balance</div>
+                  <div id="recClearedEnding" class="font-mono font-bold text-sm text-slate-900 mt-0.5">$0.00</div>
+                </div>
+                <div>
+                  <div class="text-slate-500 text-[11px]">Difference vs Statement</div>
+                  <div id="recDifference" class="font-mono font-bold text-sm text-emerald-600 mt-0.5">$0.00</div>
+                </div>
+              </div>
+
+              <!-- Unreconciled / Cleared Transactions Table -->
+              <div class="overflow-x-auto border border-slate-200 rounded-lg max-h-80">
+                <table class="w-full text-left border-collapse text-xs">
+                  <thead class="bg-slate-100 sticky top-0 border-b border-slate-200 text-slate-600 text-[11px] uppercase">
+                    <tr>
+                      <th class="py-2.5 px-3">Cleared</th>
+                      <th class="py-2.5 px-2">Date</th>
+                      <th class="py-2.5 px-2">Entry #</th>
+                      <th class="py-2.5 px-2">Payee / Description</th>
+                      <th class="py-2.5 px-2 text-right">Debit</th>
+                      <th class="py-2.5 px-2 text-right">Credit</th>
+                      <th class="py-2.5 px-3 text-right">Balance Impact</th>
+                    </tr>
+                  </thead>
+                  <tbody id="reconcileLinesBody" class="divide-y divide-slate-100 bg-white"></tbody>
+                </table>
+              </div>
+
+              <div class="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <label class="flex items-center gap-2 text-xs text-slate-600 cursor-pointer">
+                  <input type="checkbox" id="reconcileAutoAdjust" class="rounded border-slate-300 text-emerald-600" />
+                  <span>Auto-post adjustment entry to Opening Balance Equity if difference &ne; $0.00</span>
+                </label>
+                <button onclick="finishReconciliation()" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs shadow-sm transition">
+                  Finish Reconciliation
+                </button>
+              </div>
+            </div>
+
+            <!-- Auto-Categorization Rules Engine (1 col) -->
+            <div class="bg-white rounded-xl border border-slate-200 p-5 shadow-sm space-y-4">
+              <div class="flex items-center justify-between">
+                <div>
+                  <h2 class="text-base font-bold text-slate-900">Auto-Categorization Rules</h2>
+                  <p class="text-xs text-slate-500">Applied automatically during CSV upload</p>
+                </div>
+                <button onclick="applyRulesToExisting()" class="px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-[11px] border border-emerald-200">
+                  Run on Uncategorized
+                </button>
+              </div>
+
+              <!-- Add New Rule Form -->
+              <form onsubmit="handleCreateRule(event)" class="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-2.5 text-xs">
+                <div class="font-semibold text-slate-800">Create New Rule</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <input type="text" id="ruleName" required placeholder="Rule Name (e.g. Netflix)" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+                  <input type="text" id="ruleMatchValue" required placeholder="If text contains (e.g. NETFLIX)" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono" />
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <select id="ruleTargetAccount" required class="px-2.5 py-1.5 rounded border border-slate-300 bg-white"></select>
+                  <input type="text" id="ruleAssignPayee" placeholder="Set Payee Name" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+                </div>
+                <div class="flex items-center justify-between pt-1">
+                  <label class="flex items-center gap-1.5 text-slate-600">
+                    <input type="checkbox" id="ruleTaxDeductible" />
+                    <span>Mark Tax-Deductible</span>
+                  </label>
+                  <button type="submit" class="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-semibold">+ Add Rule</button>
+                </div>
+              </form>
+
+              <!-- Active Rules List -->
+              <div id="rulesListContainer" class="divide-y divide-slate-100 max-h-80 overflow-y-auto text-xs"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= VIEW 6: FINANCIAL REPORTS SUITE ================= -->
+        <section id="view-reports" class="tab-view hidden space-y-5">
+          <!-- Report Selector & Date Controls -->
+          <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden">
+            <div class="flex flex-wrap items-center gap-1.5">
+              <button onclick="switchReportSubtab('pnl')" data-rep="pnl" class="rep-tab-btn active px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 text-white">Profit & Loss (P&L)</button>
+              <button onclick="switchReportSubtab('balance-sheet')" data-rep="balance-sheet" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Balance Sheet</button>
+              <button onclick="switchReportSubtab('trial-balance')" data-rep="trial-balance" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Trial Balance</button>
+              <button onclick="switchReportSubtab('cash-flow')" data-rep="cash-flow" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Cash Flow Statement</button>
+              <button onclick="switchReportSubtab('tax-summary')" data-rep="tax-summary" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Tax Summary Schedule</button>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <label class="text-slate-500 font-medium">From:</label>
+              <input type="date" id="repStartDate" value="2026-01-01" onchange="loadAndRenderReports()" class="px-2.5 py-1.5 rounded-lg border border-slate-300" />
+              <label class="text-slate-500 font-medium">To / As Of:</label>
+              <input type="date" id="repEndDate" value="2026-10-31" onchange="loadAndRenderReports()" class="px-2.5 py-1.5 rounded-lg border border-slate-300" />
+              <button onclick="exportActiveReportCSV()" class="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Export CSV</button>
+              <button onclick="window.print()" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Print / PDF</button>
+            </div>
+          </div>
+
+          <!-- Rendered Report Sheet -->
+          <div id="reportPaperContainer" class="bg-white rounded-xl border border-slate-200 p-8 shadow-sm max-w-5xl mx-auto"></div>
+        </section>
+
+        <!-- ================= VIEW 7: BUDGETS & SAVINGS GOALS ================= -->
+        <section id="view-budgets" class="tab-view hidden space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Monthly Category Budgets (2 cols) -->
+            <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
+              <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-4">
+                <div>
+                  <h2 class="text-base font-bold text-slate-900">Monthly Expense Budgets vs. Actuals (October 2026)</h2>
+                  <p class="text-xs text-slate-500">Real-time tracking against General Ledger postings</p>
+                </div>
+              </div>
+
+              <!-- Add/Update Budget Form -->
+              <form onsubmit="handleSaveBudget(event)" class="grid grid-cols-1 sm:grid-cols-4 gap-2.5 bg-slate-50 p-3.5 rounded-lg border border-slate-200 text-xs">
+                <select id="budgetAccountSelect" required class="sm:col-span-2 px-3 py-2 rounded border border-slate-300 bg-white"></select>
+                <input type="number" step="0.01" id="budgetMonthlyAmount" required placeholder="Monthly Target ($)" class="px-3 py-2 rounded border border-slate-300 bg-white font-mono" />
+                <button type="submit" class="px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">Save Budget</button>
+              </form>
+
+              <div id="budgetsListContainer" class="space-y-4"></div>
+            </div>
+
+            <!-- Savings & Financial Goals (1 col) -->
+            <div class="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
+              <div class="border-b border-slate-100 pb-4">
+                <h2 class="text-base font-bold text-slate-900">Savings & Net Worth Goals</h2>
+                <p class="text-xs text-slate-500">Track emergency funds, investments & major milestones</p>
+              </div>
+
+              <form onsubmit="handleCreateGoal(event)" class="bg-slate-50 p-3.5 rounded-lg border border-slate-200 space-y-2.5 text-xs">
+                <div class="font-semibold text-slate-800">Add New Goal</div>
+                <input type="text" id="goalName" required placeholder="Goal Title (e.g. Emergency Fund)" class="w-full px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+                <div class="grid grid-cols-2 gap-2">
+                  <input type="number" step="0.01" id="goalTarget" required placeholder="Target ($)" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono" />
+                  <input type="number" step="0.01" id="goalCurrent" required placeholder="Current Saved ($)" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono" />
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <input type="date" id="goalDate" value="2027-06-30" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+                  <button type="submit" class="px-3 py-1.5 rounded bg-slate-900 hover:bg-slate-800 text-white font-semibold">+ Add Goal</button>
+                </div>
+              </form>
+
+              <div id="savingsGoalsContainer" class="space-y-4"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= VIEW 8: INVOICES, BILLS & RECURRING TRANSACTIONS ================= -->
+        <section id="view-invoices" class="tab-view hidden space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Invoices (Accounts Receivable) & Bills (Accounts Payable) -->
+            <div class="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
+              <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+                <div>
+                  <h2 class="text-base font-bold text-slate-900">Invoices (AR) & Bills (AP)</h2>
+                  <p class="text-xs text-slate-500">Accrual double-entry posting with one-click payment settlement</p>
+                </div>
+              </div>
+
+              <!-- New Invoice / Bill Form -->
+              <form onsubmit="handleCreateInvoiceBill(event)" class="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3 text-xs">
+                <div class="grid grid-cols-3 gap-2">
+                  <select id="docType" onchange="populateInvoiceBillAccounts()" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-semibold">
+                    <option value="INVOICE">INVOICE (Receivable)</option>
+                    <option value="BILL">BILL (Payable)</option>
+                  </select>
+                  <input type="text" id="docNumber" required value="INV-1005" placeholder="Doc #" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono" />
+                  <input type="number" step="0.01" id="docAmount" required placeholder="Amount ($)" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono" />
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <input type="text" id="docContact" required placeholder="Client or Vendor Name" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+                  <select id="docCategoryAccount" required class="px-2.5 py-1.5 rounded border border-slate-300 bg-white"></select>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                  <div>
+                    <label class="text-[10px] text-slate-500">Issue Date</label>
+                    <input type="date" id="docIssueDate" value="2026-10-19" required class="w-full px-2 py-1 rounded border border-slate-300 bg-white" />
+                  </div>
+                  <div>
+                    <label class="text-[10px] text-slate-500">Due Date</label>
+                    <input type="date" id="docDueDate" value="2026-11-15" required class="w-full px-2 py-1 rounded border border-slate-300 bg-white" />
+                  </div>
+                  <div class="flex items-end">
+                    <button type="submit" class="w-full py-1.5 px-3 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">+ Post Accrual</button>
+                  </div>
+                </div>
+              </form>
+
+              <div id="invoicesBillsList" class="space-y-3"></div>
+            </div>
+
+            <!-- Recurring Transactions & Scheduled Templates -->
+            <div class="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
+              <div class="border-b border-slate-100 pb-4">
+                <h2 class="text-base font-bold text-slate-900">Recurring & Scheduled Transactions</h2>
+                <p class="text-xs text-slate-500">Automate paychecks, rent, subscriptions, and monthly savings transfers</p>
+              </div>
+
+              <form onsubmit="handleCreateRecurring(event)" class="bg-slate-50 p-4 rounded-lg border border-slate-200 space-y-3 text-xs">
+                <div class="grid grid-cols-3 gap-2">
+                  <input type="text" id="recName" required placeholder="Template Name" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+                  <select id="recType" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-semibold">
+                    <option value="EXPENSE">Expense</option>
+                    <option value="INCOME">Income</option>
+                    <option value="TRANSFER">Transfer</option>
+                  </select>
+                  <select id="recFrequency" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white">
+                    <option value="MONTHLY">Monthly</option>
+                    <option value="BIWEEKLY">Bi-Weekly</option>
+                    <option value="WEEKLY">Weekly</option>
+                    <option value="QUARTERLY">Quarterly</option>
+                    <option value="YEARLY">Yearly</option>
+                  </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                  <select id="recPaymentAcc" required class="px-2.5 py-1.5 rounded border border-slate-300 bg-white"></select>
+                  <select id="recCategoryAcc" required class="px-2.5 py-1.5 rounded border border-slate-300 bg-white"></select>
+                </div>
+                <div class="grid grid-cols-3 gap-2">
+                  <input type="number" step="0.01" id="recAmount" required placeholder="Amount ($)" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono" />
+                  <input type="date" id="recNextDate" value="2026-11-01" required class="px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+                  <button type="submit" class="py-1.5 px-3 rounded bg-slate-900 hover:bg-slate-800 text-white font-semibold">+ Add Schedule</button>
+                </div>
+              </form>
+
+              <div id="recurringListContainer" class="space-y-3"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ================= VIEW 9: MULTI-CURRENCY & SETTINGS ================= -->
+        <section id="view-settings" class="tab-view hidden space-y-6">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- Organization & Accounting Settings -->
+            <div class="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
+              <h2 class="text-base font-bold text-slate-900">Ledger & Tax Preferences</h2>
+              <form onsubmit="handleSaveSettings(event)" class="space-y-4 text-xs">
+                <div>
+                  <label class="block font-semibold text-slate-700 mb-1">Book / Household Name</label>
+                  <input type="text" id="setOrgName" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Base Reporting Currency</label>
+                    <select id="setBaseCurrency" class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white">
+                      <option value="USD">USD ($)</option>
+                      <option value="NZD">NZD (NZ$)</option>
+                      <option value="AUD">AUD (A$)</option>
+                      <option value="EUR">EUR (€)</option>
+                      <option value="GBP">GBP (£)</option>
+                      <option value="CAD">CAD (CA$)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label class="block font-semibold text-slate-700 mb-1">Estimated Effective Tax Rate (%)</label>
+                    <input type="number" step="0.5" id="setTaxRate" class="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono" />
+                  </div>
+                </div>
+                <button type="submit" class="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">Save Preferences</button>
+              </form>
+
+              <div class="pt-5 border-t border-slate-200 space-y-3">
+                <h3 class="text-xs font-bold text-slate-800 uppercase tracking-wider">Database Controls</h3>
+                <div class="flex flex-wrap gap-3">
+                  <button onclick="resetDemoDatabase()" class="px-3.5 py-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition">
+                    Restore Default Demo Data
+                  </button>
+                  <button onclick="clearAllTransactions()" class="px-3.5 py-2 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition">
+                    Clear All Transactions (Start Empty Book)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Multi-Currency Exchange Rate Table -->
+            <div class="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-5">
+              <div>
+                <h2 class="text-base font-bold text-slate-900">Multi-Currency Exchange Rates</h2>
+                <p class="text-xs text-slate-500">Foreign currency transactions convert automatically into Base Currency for balanced General Ledger reporting</p>
+              </div>
+
+              <form onsubmit="handleSaveCurrency(event)" class="grid grid-cols-4 gap-2 bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs">
+                <input type="text" id="currCode" required placeholder="Code (e.g. NZD)" maxlength="3" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white uppercase font-mono" />
+                <input type="text" id="currSymbol" required placeholder="Symbol (NZ$)" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white" />
+                <input type="number" step="0.0001" id="currRate" required placeholder="Rate to Base" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono" />
+                <button type="submit" class="px-3 py-1.5 rounded bg-slate-900 text-white font-semibold">Save Rate</button>
+              </form>
+
+              <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr class="border-b border-slate-200 text-slate-500 uppercase text-[11px]">
+                      <th class="py-2 px-2">Currency</th>
+                      <th class="py-2 px-2">Name</th>
+                      <th class="py-2 px-2">Symbol</th>
+                      <th class="py-2 px-2 text-right">Rate to Base</th>
+                    </tr>
+                  </thead>
+                  <tbody id="currenciesTableBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 1: NEW SIMPLE TRANSACTION (EXPENSE / INCOME / TRANSFER) ================= -->
+  <div id="simpleTxModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-lg overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+        <div>
+          <h3 class="font-bold text-base">Record Transaction</h3>
+          <p class="text-[11px] text-slate-400">Automatically generates balanced Double-Entry Debits & Credits</p>
+        </div>
+        <button onclick="closeModal('simpleTxModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+
+      <form onsubmit="submitSimpleTransaction(event)" class="p-6 space-y-4 text-xs">
+        <!-- Type Switcher -->
+        <div class="grid grid-cols-3 gap-2 bg-slate-100 p-1 rounded-xl">
+          <button type="button" id="tabBtnExpense" onclick="setSimpleModalType('EXPENSE')" class="py-2 rounded-lg font-bold transition bg-rose-600 text-white shadow-xs">Expense / Money Out</button>
+          <button type="button" id="tabBtnIncome" onclick="setSimpleModalType('INCOME')" class="py-2 rounded-lg font-bold transition text-slate-700">Income / Deposit</button>
+          <button type="button" id="tabBtnTransfer" onclick="setSimpleModalType('TRANSFER')" class="py-2 rounded-lg font-bold transition text-slate-700">Account Transfer</button>
+        </div>
+        <input type="hidden" id="simpleTxType" value="EXPENSE" />
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Date</label>
+            <input type="date" id="simpleTxDate" required value="2026-10-19" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Amount</label>
+            <input type="number" step="0.01" id="simpleTxAmount" required placeholder="0.00" class="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono text-sm font-bold" />
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label id="lblPaymentAccount" class="block font-semibold text-slate-700 mb-1">Payment Account (Bank / Card)</label>
+            <select id="simpleTxPaymentAccount" required class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"></select>
+          </div>
+          <div>
+            <label id="lblCategoryAccount" class="block font-semibold text-slate-700 mb-1">Category Account</label>
+            <select id="simpleTxCategoryAccount" required class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white"></select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Payee / Counterparty</label>
+            <input type="text" id="simpleTxPayee" placeholder="e.g. Whole Foods, Employer, Client" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Reference / Check #</label>
+            <input type="text" id="simpleTxRef" placeholder="Optional Ref #" class="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono" />
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Memo / Description</label>
+          <input type="text" id="simpleTxMemo" placeholder="Notes about this transaction" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 items-center pt-1">
+          <div class="flex items-center gap-2">
+            <label class="font-semibold text-slate-700">Currency:</label>
+            <select id="simpleTxCurrency" onchange="updateSimpleModalExchangeRate()" class="px-2.5 py-1.5 rounded border border-slate-300 bg-white font-mono"></select>
+            <input type="number" step="0.0001" id="simpleTxRate" value="1.0" class="w-20 px-2 py-1.5 rounded border border-slate-300 font-mono" title="Exchange rate to Base Currency" />
+          </div>
+          <label class="flex items-center gap-2 text-slate-700 font-medium cursor-pointer justify-end">
+            <input type="checkbox" id="simpleTxTaxDeductible" class="rounded text-emerald-600" />
+            <span>Tax-Deductible Item</span>
+          </label>
+        </div>
+
+        <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
+          <button type="button" onclick="closeModal('simpleTxModal')" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Cancel</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Save & Post to Ledger</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 2: MULTI-LINE DOUBLE-ENTRY JOURNAL ENTRY ================= -->
+  <div id="journalModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-3xl overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+        <div>
+          <h3 class="font-bold text-base">New Double-Entry Journal Entry</h3>
+          <p class="text-[11px] text-slate-400">Record compound entries across any Asset, Liability, Equity, Income, or Expense accounts</p>
+        </div>
+        <button onclick="closeModal('journalModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+
+      <form onsubmit="submitJournalEntryModal(event)" class="p-6 space-y-4 text-xs">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Journal Date</label>
+            <input type="date" id="jeDate" required value="2026-10-19" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Payee / Entity</label>
+            <input type="text" id="jePayee" placeholder="Optional Payee" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Memo / Narrative</label>
+            <input type="text" id="jeMemo" required placeholder="Explanation of journal entry" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          </div>
+        </div>
+
+        <div class="border border-slate-200 rounded-lg overflow-hidden">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead class="bg-slate-100 border-b border-slate-200 text-slate-600 uppercase text-[11px]">
+              <tr>
+                <th class="py-2 px-3">Account</th>
+                <th class="py-2 px-3">Line Description</th>
+                <th class="py-2 px-3 text-right w-32">Debit ($)</th>
+                <th class="py-2 px-3 text-right w-32">Credit ($)</th>
+                <th class="py-2 px-2 w-10"></th>
+              </tr>
+            </thead>
+            <tbody id="jeLinesBody" class="divide-y divide-slate-100"></tbody>
+            <tfoot class="bg-slate-50 border-t border-slate-200 font-mono font-bold">
+              <tr>
+                <td colspan="2" class="py-2.5 px-3">
+                  <button type="button" onclick="addJournalModalLine()" class="text-emerald-600 hover:underline font-sans font-semibold">+ Add Journal Line</button>
+                </td>
+                <td id="jeTotalDebit" class="py-2.5 px-3 text-right text-slate-900">$0.00</td>
+                <td id="jeTotalCredit" class="py-2.5 px-3 text-right text-slate-900">$0.00</td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        <div class="flex items-center justify-between pt-2">
+          <div id="jeBalanceStatus" class="font-mono text-xs font-semibold text-emerald-600">Balanced ($0.00 difference)</div>
+          <div class="flex gap-2">
+            <button type="button" onclick="closeModal('journalModal')" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Cancel</button>
+            <button type="submit" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Post Journal Entry</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 3: NEW ACCOUNT (CHART OF ACCOUNTS) ================= -->
+  <div id="accountModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between">
+        <h3 class="font-bold text-base">Add Account to Chart of Accounts</h3>
+        <button onclick="closeModal('accountModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <form onsubmit="submitNewAccount(event)" class="p-6 space-y-4 text-xs">
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Code</label>
+            <input type="text" id="accCode" required placeholder="e.g. 1050" class="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono" />
+          </div>
+          <div class="col-span-2">
+            <label class="block font-semibold text-slate-700 mb-1">Account Name</label>
+            <input type="text" id="accName" required placeholder="e.g. Fidelity Roth IRA" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Account Type</label>
+            <select id="accType" class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white">
+              <option value="ASSET">ASSET</option>
+              <option value="LIABILITY">LIABILITY</option>
+              <option value="EQUITY">EQUITY</option>
+              <option value="INCOME">INCOME</option>
+              <option value="EXPENSE">EXPENSE</option>
+            </select>
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Subtype</label>
+            <select id="accSubtype" class="w-full px-3 py-2 rounded-lg border border-slate-300 bg-white">
+              <option value="BANK">BANK (Checking/Savings)</option>
+              <option value="CREDIT_CARD">CREDIT_CARD</option>
+              <option value="INVESTMENT">INVESTMENT</option>
+              <option value="FIXED_ASSET">FIXED_ASSET</option>
+              <option value="LOAN">LOAN / MORTGAGE</option>
+              <option value="OPERATING_EXPENSE">OPERATING_EXPENSE</option>
+              <option value="OPERATING_INCOME">OPERATING_INCOME</option>
+              <option value="EQUITY">EQUITY</option>
+            </select>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Opening Balance ($)</label>
+            <input type="number" step="0.01" id="accOpeningBal" value="0" class="w-full px-3 py-2 rounded-lg border border-slate-300 font-mono" />
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Tax Category</label>
+            <input type="text" id="accTaxCat" placeholder="Optional Schedule C / A" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+          </div>
+        </div>
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Description</label>
+          <input type="text" id="accDesc" placeholder="Account notes" class="w-full px-3 py-2 rounded-lg border border-slate-300" />
+        </div>
+        <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
+          <button type="button" onclick="closeModal('accountModal')" class="px-4 py-2 rounded-lg border border-slate-300 text-slate-700 font-semibold">Cancel</button>
+          <button type="submit" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold">Create Account</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL 4: GENERAL LEDGER DRILL-DOWN FOR ANY ACCOUNT ================= -->
+  <div id="ledgerModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-4xl max-h-[85vh] flex flex-col overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
+        <div>
+          <h3 id="ledgerModalTitle" class="font-bold text-base">Account General Ledger</h3>
+          <p id="ledgerModalSubtitle" class="text-xs text-emerald-400 font-mono"></p>
+        </div>
+        <button onclick="closeModal('ledgerModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <div class="p-6 overflow-y-auto flex-1">
+        <table class="w-full text-left border-collapse text-xs">
+          <thead>
+            <tr class="border-b border-slate-200 text-slate-500 uppercase text-[11px]">
+              <th class="py-2.5 px-2">Date</th>
+              <th class="py-2.5 px-2">Entry #</th>
+              <th class="py-2.5 px-2">Payee / Description</th>
+              <th class="py-2.5 px-2 text-center">Reconciled</th>
+              <th class="py-2.5 px-2 text-right">Debit</th>
+              <th class="py-2.5 px-2 text-right">Credit</th>
+              <th class="py-2.5 px-2 text-right">Running Balance</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerModalBody" class="divide-y divide-slate-100"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
