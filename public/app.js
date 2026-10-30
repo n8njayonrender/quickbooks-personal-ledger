@@ -20,6 +20,9 @@ let APP = {
   coaFilter: 'ALL',
   activeReportTab: 'pnl',
   reportsData: null,
+  pnlViewMode: 'TOTAL', // 'TOTAL' or 'MONTHLY'
+  pnlDrillSpecs: [],
+  drilldown: null,
   csvRawText: '',
   csvFilename: 'bank_statement.csv',
   csvPreviewData: null,
@@ -1259,7 +1262,373 @@ function switchReportSubtab(rep) {
       ? 'rep-tab-btn active px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 text-white'
       : 'rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200';
   });
+  const toggle = document.getElementById('pnlViewToggle');
+  if (toggle) toggle.classList.toggle('hidden', rep !== 'pnl');
   renderActiveReport();
+}
+
+// ---------- P&L: Total / Monthly view + Drill-Down ----------
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+function setPnlViewMode(mode) {
+  APP.pnlViewMode = mode === 'MONTHLY' ? 'MONTHLY' : 'TOTAL';
+  document.querySelectorAll('.pnl-mode-btn').forEach((btn) => {
+    const active = btn.dataset.pnlmode === APP.pnlViewMode;
+    btn.className = active
+      ? 'pnl-mode-btn px-2.5 py-1 rounded-md font-semibold bg-white text-slate-900 shadow-xs'
+      : 'pnl-mode-btn px-2.5 py-1 rounded-md font-semibold text-slate-600 hover:text-slate-900';
+  });
+  renderActiveReport();
+}
+
+// Build list of calendar months covering [startDate, endDate], each clamped to the report period
+function getReportMonths(startDate, endDate) {
+  const months = [];
+  if (!startDate || !endDate || startDate > endDate) return months;
+  let y = Number(startDate.slice(0, 4));
+  let m = Number(startDate.slice(5, 7));
+  const endKey = endDate.slice(0, 7);
+  let guard = 0;
+  while (guard++ < 240) {
+    const key = `${y}-${String(m).padStart(2, '0')}`;
+    if (key > endKey) break;
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const mStart = `${key}-01`;
+    const mEnd = `${key}-${String(lastDay).padStart(2, '0')}`;
+    months.push({
+      key,
+      label: `${MONTH_SHORT[m - 1]} ${y}`,
+      start: mStart < startDate ? startDate : mStart,
+      end: mEnd > endDate ? endDate : mEnd
+    });
+    m += 1;
+    if (m > 12) { m = 1; y += 1; }
+  }
+  return months;
+}
+
+// Register a drill-down filter and return its index (used by onclick handlers)
+function registerPnlDrill(spec) {
+  APP.pnlDrillSpecs.push(spec);
+  return APP.pnlDrillSpecs.length - 1;
+}
+
+// Clickable amount cell
+function drillAmount(amount, spec, extraClass = '') {
+  const idx = registerPnlDrill(spec);
+  return `<button type="button" onclick="openPnlDrilldown(${idx})" title="Click to drill down into the transactions behind this number" class="font-mono ${extraClass} hover:text-emerald-600 hover:underline underline-offset-2 decoration-dotted cursor-pointer">${fmtMoney(amount)}</button>`;
+}
+
+// Filter P&L detail lines for a drill-down spec. Returns lines with `signed` (contribution to the figure)
+function getPnlDrillLines(spec) {
+  const lines = (APP.reportsData && APP.reportsData.pnlLines) || [];
+  return lines
+    .filter((l) => l.date >= spec.start && l.date <= spec.end)
+    .filter((l) => !spec.accountId || Number(l.account_id) === Number(spec.accountId))
+    .filter((l) => !spec.accountType || l.account_type === spec.accountType)
+    .map((l) => ({
+      ...l,
+      // Net income drill-down: income adds, expenses subtract
+      signed: spec.mode === 'NET' && l.account_type === 'EXPENSE' ? -Number(l.amount) : Number(l.amount)
+    }));
+}
+
+function renderPnLReport(box, org) {
+  const pnl = APP.reportsData.pnl;
+  const lines = APP.reportsData.pnlLines || [];
+  APP.pnlDrillSpecs = [];
+  const period = { start: pnl.startDate, end: pnl.endDate };
+  const hint = `<p class="text-[11px] text-slate-400 mt-1 print:hidden">Tip: click any amount to drill down into the underlying transactions.</p>`;
+
+  const header = (subtitle) => `
+    <div class="border-b-2 border-slate-900 pb-4 mb-6 flex justify-between items-end">
+      <div>
+        <div class="text-xs font-bold uppercase tracking-widest text-emerald-600">${org}</div>
+        <h2 class="text-2xl font-bold text-slate-900">Profit &amp; Loss Statement (Income Statement)${subtitle}</h2>
+        <p class="text-xs text-slate-500">Period: ${escapeHtml(pnl.startDate)} through ${escapeHtml(pnl.endDate)}</p>
+        ${hint}
+      </div>
+      <div class="text-right">
+        <div class="text-xs text-slate-500">Net Savings Rate</div>
+        <div class="text-xl font-mono font-bold text-emerald-600">${pnl.savingsRate}%</div>
+      </div>
+    </div>`;
+
+  if (APP.pnlViewMode !== 'MONTHLY') {
+    box.classList.add('max-w-5xl');
+    box.classList.remove('max-w-none');
+    const accRow = (a) => `
+      <div class="py-2 flex justify-between">
+        <span><span class="font-mono text-slate-400 mr-2">${escapeHtml(a.code)}</span>${escapeHtml(a.name)}</span>
+        ${drillAmount(a.amount, { ...period, accountId: a.id, title: `${a.code} - ${a.name}` }, 'font-medium')}
+      </div>`;
+    box.innerHTML = `
+      ${header('')}
+      <div class="space-y-6 text-xs">
+        <div>
+          <h3 class="font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1.5 mb-2">Operating &amp; Investment Income</h3>
+          <div class="divide-y divide-slate-100">${pnl.incomeAccounts.map(accRow).join('')}</div>
+          <div class="py-2.5 border-t border-slate-300 flex justify-between font-bold text-sm text-emerald-700">
+            <span>Total Income</span>
+            ${drillAmount(pnl.totalIncome, { ...period, accountType: 'INCOME', title: 'Total Income' })}
+          </div>
+        </div>
+        <div>
+          <h3 class="font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1.5 mb-2">Expenses &amp; Taxes</h3>
+          <div class="divide-y divide-slate-100">${pnl.expenseAccounts.map(accRow).join('')}</div>
+          <div class="py-2.5 border-t border-slate-300 flex justify-between font-bold text-sm text-rose-700">
+            <span>Total Expenses</span>
+            ${drillAmount(pnl.totalExpenses, { ...period, accountType: 'EXPENSE', title: 'Total Expenses' })}
+          </div>
+        </div>
+        <div class="p-4 rounded-xl bg-slate-900 text-white flex justify-between items-center text-base font-bold">
+          <span>NET INCOME (NET SAVINGS)</span>
+          ${drillAmount(pnl.netIncome, { ...period, mode: 'NET', title: 'Net Income (Income less Expenses)' }, 'text-emerald-400 hover:text-emerald-300')}
+        </div>
+      </div>`;
+    return;
+  }
+
+  // ---- MONTHLY VIEW ----
+  box.classList.remove('max-w-5xl');
+  box.classList.add('max-w-none');
+  const months = getReportMonths(pnl.startDate, pnl.endDate);
+
+  // Aggregate amounts by account and month
+  const byAccMonth = new Map();
+  const incByMonth = {};
+  const expByMonth = {};
+  for (const l of lines) {
+    const mk = l.date.slice(0, 7);
+    const k = `${l.account_id}|${mk}`;
+    byAccMonth.set(k, Math.round(((byAccMonth.get(k) || 0) + Number(l.amount)) * 100) / 100);
+    if (l.account_type === 'INCOME') incByMonth[mk] = (incByMonth[mk] || 0) + Number(l.amount);
+    else expByMonth[mk] = (expByMonth[mk] || 0) + Number(l.amount);
+  }
+
+  const cell = (amount, spec, cls = '') => {
+    if (Math.abs(Number(amount) || 0) < 0.005) return `<td class="py-2 px-3 text-right text-slate-300 font-mono">—</td>`;
+    return `<td class="py-2 px-3 text-right whitespace-nowrap ${cls}">${drillAmount(amount, spec)}</td>`;
+  };
+
+  const accountRows = (accs) => accs.map((a) => `
+    <tr class="hover:bg-slate-50">
+      <td class="py-2 px-3 sticky left-0 bg-white whitespace-nowrap"><span class="font-mono text-slate-400 mr-2">${escapeHtml(a.code)}</span>${escapeHtml(a.name)}</td>
+      ${months.map((mo) => cell(byAccMonth.get(`${a.id}|${mo.key}`) || 0, { start: mo.start, end: mo.end, accountId: a.id, title: `${a.code} - ${a.name} — ${mo.label}` })).join('')}
+      ${cell(a.amount, { ...period, accountId: a.id, title: `${a.code} - ${a.name} — Full Period` }, 'font-semibold bg-slate-50')}
+    </tr>`).join('');
+
+  const totalRow = (label, byMonth, total, type, colorCls) => `
+    <tr class="border-t-2 border-slate-300 font-bold ${colorCls}">
+      <td class="py-2.5 px-3 sticky left-0 bg-white whitespace-nowrap">${label}</td>
+      ${months.map((mo) => cell(byMonth[mo.key] || 0, { start: mo.start, end: mo.end, accountType: type, title: `${label} — ${mo.label}` })).join('')}
+      ${cell(total, { ...period, accountType: type, title: `${label} — Full Period` }, 'bg-slate-50')}
+    </tr>`;
+
+  const sectionRow = (label) => `
+    <tr><td colspan="${months.length + 2}" class="pt-5 pb-1.5 px-3 font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 sticky left-0 bg-white">${label}</td></tr>`;
+
+  const netCells = months.map((mo) => {
+    const net = Math.round(((incByMonth[mo.key] || 0) - (expByMonth[mo.key] || 0)) * 100) / 100;
+    if (Math.abs(net) < 0.005) return `<td class="py-3 px-3 text-right font-mono text-slate-500">—</td>`;
+    return `<td class="py-3 px-3 text-right whitespace-nowrap">${drillAmount(net, { start: mo.start, end: mo.end, mode: 'NET', title: `Net Income — ${mo.label}` }, net < 0 ? 'text-rose-300 hover:text-rose-200' : 'text-emerald-400 hover:text-emerald-300')}</td>`;
+  }).join('');
+
+  const rateCells = months.map((mo) => {
+    const inc = incByMonth[mo.key] || 0;
+    const net = inc - (expByMonth[mo.key] || 0);
+    return `<td class="py-2 px-3 text-right font-mono text-slate-500">${inc > 0 ? `${((net / inc) * 100).toFixed(1)}%` : '—'}</td>`;
+  }).join('');
+
+  box.innerHTML = `
+    ${header(' — Monthly')}
+    <div class="overflow-x-auto text-xs">
+      <table class="w-full min-w-max">
+        <thead>
+          <tr class="text-[10px] uppercase tracking-wider text-slate-500 border-b border-slate-300">
+            <th class="py-2 px-3 text-left sticky left-0 bg-white">Account</th>
+            ${months.map((mo) => `<th class="py-2 px-3 text-right whitespace-nowrap">${mo.label}</th>`).join('')}
+            <th class="py-2 px-3 text-right bg-slate-50">Total</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${sectionRow('Operating &amp; Investment Income')}
+          ${accountRows(pnl.incomeAccounts)}
+          ${totalRow('Total Income', incByMonth, pnl.totalIncome, 'INCOME', 'text-emerald-700')}
+          ${sectionRow('Expenses &amp; Taxes')}
+          ${accountRows(pnl.expenseAccounts)}
+          ${totalRow('Total Expenses', expByMonth, pnl.totalExpenses, 'EXPENSE', 'text-rose-700')}
+        </tbody>
+        <tfoot>
+          <tr class="bg-slate-900 text-white font-bold">
+            <td class="py-3 px-3 sticky left-0 bg-slate-900 whitespace-nowrap">NET INCOME (NET SAVINGS)</td>
+            ${netCells}
+            <td class="py-3 px-3 text-right whitespace-nowrap">${drillAmount(pnl.netIncome, { ...period, mode: 'NET', title: 'Net Income — Full Period' }, 'text-emerald-400 hover:text-emerald-300')}</td>
+          </tr>
+          <tr>
+            <td class="py-2 px-3 sticky left-0 bg-white text-slate-500 font-semibold">Savings Rate</td>
+            ${rateCells}
+            <td class="py-2 px-3 text-right font-mono font-semibold text-emerald-600 bg-slate-50">${pnl.savingsRate}%</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+}
+
+function openPnlDrilldown(idx) {
+  const spec = APP.pnlDrillSpecs[idx];
+  if (!spec) return;
+  APP.drilldown = { spec, lines: getPnlDrillLines(spec) };
+  document.getElementById('drilldownTitle').textContent = `Drill-Down: ${spec.title || 'P&L Detail'}`;
+  document.getElementById('drilldownSubtitle').textContent = `Period ${spec.start} to ${spec.end}${spec.mode === 'NET' ? ' • Income shown positive, expenses negative' : ''}`;
+  document.getElementById('drilldownSearch').value = '';
+  renderDrilldownRows();
+  openModal('drilldownModal');
+}
+
+function getFilteredDrilldownLines() {
+  if (!APP.drilldown) return [];
+  const q = (document.getElementById('drilldownSearch')?.value || '').trim().toLowerCase();
+  if (!q) return APP.drilldown.lines;
+  return APP.drilldown.lines.filter((l) =>
+    [l.entry_number, l.payee, l.memo, l.line_description, l.reference, l.account_code, l.account_name, l.contra_accounts, l.date]
+      .some((v) => String(v || '').toLowerCase().includes(q))
+  );
+}
+
+function renderDrilldownRows() {
+  const rows = getFilteredDrilldownLines();
+  let running = 0;
+  const body = document.getElementById('drilldownBody');
+  if (rows.length === 0) {
+    body.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-slate-400">No transactions found for this figure.</td></tr>`;
+  } else {
+    body.innerHTML = rows.map((l) => {
+      running = Math.round((running + l.signed) * 100) / 100;
+      const desc = l.payee || l.memo || l.line_description || '';
+      const sub = l.memo && l.memo !== desc ? l.memo : (l.line_description && l.line_description !== desc ? l.line_description : '');
+      return `
+        <tr class="hover:bg-slate-50">
+          <td class="py-2 px-3 whitespace-nowrap font-mono">${escapeHtml(l.date)}</td>
+          <td class="py-2 px-3 whitespace-nowrap font-mono text-slate-500">${escapeHtml(l.entry_number || '')}</td>
+          <td class="py-2 px-3">
+            <div class="font-medium text-slate-800">${escapeHtml(desc)}</div>
+            ${sub ? `<div class="text-[11px] text-slate-400">${escapeHtml(sub)}</div>` : ''}
+          </td>
+          <td class="py-2 px-3 whitespace-nowrap"><span class="font-mono text-slate-400 mr-1">${escapeHtml(l.account_code)}</span>${escapeHtml(l.account_name)}</td>
+          <td class="py-2 px-3 text-slate-500">${escapeHtml(l.contra_accounts || '')}</td>
+          <td class="py-2 px-3 text-right font-mono font-semibold ${l.signed < 0 ? 'text-rose-600' : 'text-slate-900'}">${fmtMoney(l.signed)}</td>
+          <td class="py-2 px-3 text-right font-mono text-slate-500">${fmtMoney(running)}</td>
+          <td class="py-2 px-3 text-center">
+            <button type="button" onclick="editFromDrilldown(${Number(l.entry_id)}, '${escapeHtml(l.date)}')" class="px-2 py-1 rounded-md border border-slate-300 hover:border-emerald-500 hover:text-emerald-700 font-semibold">Edit</button>
+          </td>
+        </tr>`;
+    }).join('');
+  }
+  const total = Math.round(rows.reduce((s, l) => s + l.signed, 0) * 100) / 100;
+  document.getElementById('drilldownTotal').textContent = fmtMoney(total);
+  const all = APP.drilldown ? APP.drilldown.lines.length : 0;
+  document.getElementById('drilldownSummary').textContent = rows.length === all
+    ? `${rows.length} line(s)`
+    : `${rows.length} of ${all} line(s) shown`;
+}
+
+async function editFromDrilldown(entryId, date) {
+  let tx = APP.transactions.find((t) => t.id === Number(entryId));
+  if (!tx) {
+    // Entry may be older than the recent transactions cached at bootstrap; fetch it by date
+    try {
+      const data = await apiFetch(`/api/journal-entries?startDate=${date}&endDate=${date}&limit=5000`);
+      (data.entries || []).forEach((e) => {
+        if (!APP.transactions.some((t) => t.id === e.id)) APP.transactions.push(e);
+      });
+      tx = APP.transactions.find((t) => t.id === Number(entryId));
+    } catch (err) {
+      /* fall through */
+    }
+  }
+  if (!tx) {
+    showToast('Could not load this entry for editing. Open it from the Transactions register.', 'error');
+    return;
+  }
+  closeModal('drilldownModal');
+  openEditTransactionModal(entryId);
+}
+
+function csvCell(v) {
+  const s = String(v ?? '');
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadCSV(filename, rows) {
+  const csv = rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportDrilldownCSV() {
+  if (!APP.drilldown) return;
+  const { spec } = APP.drilldown;
+  const rows = [
+    [`Drill-Down: ${spec.title || 'P&L Detail'}`, `${spec.start} to ${spec.end}`],
+    ['Date', 'Entry #', 'Payee', 'Memo', 'Account Code', 'Account Name', 'Contra Account', 'Amount']
+  ];
+  let total = 0;
+  for (const l of getFilteredDrilldownLines()) {
+    total += l.signed;
+    rows.push([l.date, l.entry_number, l.payee, l.memo || l.line_description, l.account_code, l.account_name, l.contra_accounts, l.signed.toFixed(2)]);
+  }
+  rows.push(['', '', '', '', '', '', 'TOTAL', total.toFixed(2)]);
+  const safe = String(spec.title || 'detail').replace(/[^a-z0-9]+/gi, '_').replace(/^_|_$/g, '').toLowerCase();
+  downloadCSV(`drilldown_${safe}_${spec.start}_to_${spec.end}.csv`, rows);
+}
+
+function exportPnLCSV() {
+  const pnl = APP.reportsData.pnl;
+  const lines = APP.reportsData.pnlLines || [];
+  if (APP.pnlViewMode !== 'MONTHLY') {
+    const rows = [
+      ['Profit & Loss Statement (Income Statement)', `${pnl.startDate} to ${pnl.endDate}`],
+      ['Account Code', 'Account Name', 'Category', 'Amount'],
+      ['--- REVENUE / INCOME ---']
+    ];
+    pnl.incomeAccounts.forEach((i) => rows.push([i.code, i.name, 'INCOME', i.amount.toFixed(2)]));
+    rows.push(['', 'Total Income', '', pnl.totalIncome.toFixed(2)], ['--- OPERATING EXPENSES ---']);
+    pnl.expenseAccounts.forEach((e) => rows.push([e.code, e.name, 'EXPENSE', e.amount.toFixed(2)]));
+    rows.push(['', 'Total Expenses', '', pnl.totalExpenses.toFixed(2)]);
+    rows.push(['', 'NET INCOME (PROFIT / SAVINGS)', '', pnl.netIncome.toFixed(2)]);
+    rows.push(['', 'Savings / Profit Margin (%)', '', `${pnl.savingsRate}%`]);
+    downloadCSV(`profit_and_loss_${pnl.startDate}_to_${pnl.endDate}.csv`, rows);
+    return;
+  }
+  const months = getReportMonths(pnl.startDate, pnl.endDate);
+  const sum = {};
+  for (const l of lines) {
+    const k = `${l.account_id}|${l.date.slice(0, 7)}`;
+    sum[k] = (sum[k] || 0) + Number(l.amount);
+    const tk = `${l.account_type}|${l.date.slice(0, 7)}`;
+    sum[tk] = (sum[tk] || 0) + Number(l.amount);
+  }
+  const v = (k) => (sum[k] || 0).toFixed(2);
+  const rows = [
+    ['Monthly Profit & Loss Statement', `${pnl.startDate} to ${pnl.endDate}`],
+    ['Account Code', 'Account Name', ...months.map((m) => m.label), 'Total'],
+    ['--- REVENUE / INCOME ---']
+  ];
+  pnl.incomeAccounts.forEach((a) => rows.push([a.code, a.name, ...months.map((m) => v(`${a.id}|${m.key}`)), a.amount.toFixed(2)]));
+  rows.push(['', 'Total Income', ...months.map((m) => v(`INCOME|${m.key}`)), pnl.totalIncome.toFixed(2)]);
+  rows.push(['--- OPERATING EXPENSES ---']);
+  pnl.expenseAccounts.forEach((a) => rows.push([a.code, a.name, ...months.map((m) => v(`${a.id}|${m.key}`)), a.amount.toFixed(2)]));
+  rows.push(['', 'Total Expenses', ...months.map((m) => v(`EXPENSE|${m.key}`)), pnl.totalExpenses.toFixed(2)]);
+  rows.push(['', 'NET INCOME (PROFIT / SAVINGS)', ...months.map((m) => ((sum[`INCOME|${m.key}`] || 0) - (sum[`EXPENSE|${m.key}`] || 0)).toFixed(2)), pnl.netIncome.toFixed(2)]);
+  downloadCSV(`profit_and_loss_monthly_${pnl.startDate}_to_${pnl.endDate}.csv`, rows);
 }
 
 async function loadAndRenderReports() {
@@ -1274,6 +1643,10 @@ async function loadAndRenderReports() {
 }
 
 function exportActiveReportCSV() {
+  if (APP.activeReportTab === 'pnl' && APP.reportsData) {
+    exportPnLCSV();
+    return;
+  }
   const startDate = document.getElementById('repStartDate').value || '2026-01-01';
   const endDate = document.getElementById('repEndDate').value || '2026-10-31';
   const type = APP.activeReportTab === 'cash-flow' ? 'pnl' : APP.activeReportTab;
@@ -1285,61 +1658,11 @@ function renderActiveReport() {
   const box = document.getElementById('reportPaperContainer');
   const org = escapeHtml(APP.settings.organization_name || 'Personal Financial Ledger');
   const rep = APP.activeReportTab;
+  box.classList.add('max-w-5xl');
+  box.classList.remove('max-w-none');
 
   if (rep === 'pnl') {
-    const pnl = APP.reportsData.pnl;
-    box.innerHTML = `
-      <div class="border-b-2 border-slate-900 pb-4 mb-6 flex justify-between items-end">
-        <div>
-          <div class="text-xs font-bold uppercase tracking-widest text-emerald-600">${org}</div>
-          <h2 class="text-2xl font-bold text-slate-900">Profit & Loss Statement (Income Statement)</h2>
-          <p class="text-xs text-slate-500">Period: ${escapeHtml(pnl.startDate)} through ${escapeHtml(pnl.endDate)}</p>
-        </div>
-        <div class="text-right">
-          <div class="text-xs text-slate-500">Net Savings Rate</div>
-          <div class="text-xl font-mono font-bold text-emerald-600">${pnl.savingsRate}%</div>
-        </div>
-      </div>
-
-      <div class="space-y-6 text-xs">
-        <div>
-          <h3 class="font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1.5 mb-2">Operating & Investment Income</h3>
-          <div class="divide-y divide-slate-100">
-            ${pnl.incomeAccounts.map((i) => `
-              <div class="py-2 flex justify-between">
-                <span><span class="font-mono text-slate-400 mr-2">${escapeHtml(i.code)}</span>${escapeHtml(i.name)}</span>
-                <span class="font-mono font-medium">${fmtMoney(i.amount)}</span>
-              </div>
-            `).join('')}
-          </div>
-          <div class="py-2.5 border-t border-slate-300 flex justify-between font-bold text-sm text-emerald-700">
-            <span>Total Income</span>
-            <span class="font-mono">${fmtMoney(pnl.totalIncome)}</span>
-          </div>
-        </div>
-
-        <div>
-          <h3 class="font-bold text-slate-900 uppercase tracking-wider border-b border-slate-200 pb-1.5 mb-2">Expenses & Taxes</h3>
-          <div class="divide-y divide-slate-100">
-            ${pnl.expenseAccounts.map((e) => `
-              <div class="py-2 flex justify-between">
-                <span><span class="font-mono text-slate-400 mr-2">${escapeHtml(e.code)}</span>${escapeHtml(e.name)}</span>
-                <span class="font-mono font-medium">${fmtMoney(e.amount)}</span>
-              </div>
-            `).join('')}
-          </div>
-          <div class="py-2.5 border-t border-slate-300 flex justify-between font-bold text-sm text-rose-700">
-            <span>Total Expenses</span>
-            <span class="font-mono">${fmtMoney(pnl.totalExpenses)}</span>
-          </div>
-        </div>
-
-        <div class="p-4 rounded-xl bg-slate-900 text-white flex justify-between items-center text-base font-bold">
-          <span>NET INCOME (NET SAVINGS)</span>
-          <span class="font-mono text-emerald-400">${fmtMoney(pnl.netIncome)}</span>
-        </div>
-      </div>
-    `;
+    renderPnLReport(box, org);
   } else if (rep === 'balance-sheet') {
     const bs = APP.reportsData.balanceSheet;
     box.innerHTML = `

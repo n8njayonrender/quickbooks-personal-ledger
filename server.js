@@ -13,6 +13,7 @@ const {
   computeNormalBalance,
   getAccountsWithBalances,
   getProfitAndLoss,
+  getProfitAndLossDetail,
   getBalanceSheet,
   getTrialBalance,
   getCashFlowStatement,
@@ -1246,9 +1247,11 @@ app.get('/api/reports/all', (req, res) => {
     const trialBalance = getTrialBalance(asOfDate);
     const cashFlow = getCashFlowStatement(startDate, endDate);
     const taxSummary = getTaxSummary(startDate, endDate);
+    const pnlLines = getProfitAndLossDetail(startDate, endDate);
 
     res.json({
       pnl,
+      pnlLines,
       balanceSheet,
       trialBalance,
       cashFlow,

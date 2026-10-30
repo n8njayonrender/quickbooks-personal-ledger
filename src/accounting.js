@@ -94,6 +94,53 @@ function getProfitAndLoss(startDate, endDate) {
 }
 
 /**
+ * Profit & Loss line-level detail for [startDate, endDate].
+ * Returns every INCOME / EXPENSE journal line in the period (with its entry header
+ * and contra accounts) so the UI can build monthly columns and drill down into any number.
+ * `amount` is expressed in the account's normal balance (income: credit - debit, expense: debit - credit).
+ */
+function getProfitAndLossDetail(startDate, endDate) {
+  const rows = db.prepare(`
+    SELECT
+      jl.id AS line_id,
+      jl.journal_entry_id AS entry_id,
+      jl.account_id,
+      jl.description AS line_description,
+      jl.debit,
+      jl.credit,
+      je.entry_number,
+      je.date,
+      je.payee,
+      je.memo,
+      je.reference,
+      je.source_type,
+      a.code AS account_code,
+      a.name AS account_name,
+      a.type AS account_type,
+      (
+        SELECT GROUP_CONCAT(a2.code || ' - ' || a2.name, '; ')
+        FROM journal_lines jl2
+        JOIN accounts a2 ON a2.id = jl2.account_id
+        WHERE jl2.journal_entry_id = jl.journal_entry_id AND jl2.id <> jl.id
+      ) AS contra_accounts
+    FROM journal_lines jl
+    JOIN journal_entries je ON je.id = jl.journal_entry_id
+    JOIN accounts a ON a.id = jl.account_id
+    WHERE a.type IN ('INCOME', 'EXPENSE')
+      AND je.date >= ? AND je.date <= ?
+    ORDER BY je.date ASC, je.id ASC, jl.id ASC
+  `).all(startDate, endDate);
+
+  return rows.map((r) => ({
+    ...r,
+    debit: round2(r.debit),
+    credit: round2(r.credit),
+    contra_accounts: r.contra_accounts || '',
+    amount: computeNormalBalance(r.account_type, r.debit, r.credit)
+  }));
+}
+
+/**
  * Balance Sheet Report as of asOfDate
  */
 function getBalanceSheet(asOfDate) {
@@ -842,6 +889,7 @@ module.exports = {
   computeNormalBalance,
   getAccountsWithBalances,
   getProfitAndLoss,
+  getProfitAndLossDetail,
   getBalanceSheet,
   getTrialBalance,
   getCashFlowStatement,

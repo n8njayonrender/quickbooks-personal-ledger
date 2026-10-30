@@ -687,6 +687,10 @@
             </div>
 
             <div class="flex flex-wrap items-center gap-2 text-xs">
+              <div id="pnlViewToggle" class="flex items-center p-0.5 rounded-lg bg-slate-100 border border-slate-200 mr-1">
+                <button type="button" data-pnlmode="TOTAL" onclick="setPnlViewMode('TOTAL')" class="pnl-mode-btn px-2.5 py-1 rounded-md font-semibold bg-white text-slate-900 shadow-xs">Total</button>
+                <button type="button" data-pnlmode="MONTHLY" onclick="setPnlViewMode('MONTHLY')" class="pnl-mode-btn px-2.5 py-1 rounded-md font-semibold text-slate-600">Monthly</button>
+              </div>
               <label class="text-slate-500 font-medium">From:</label>
               <input type="date" id="repStartDate" value="2026-01-01" onchange="loadAndRenderReports()" class="px-2.5 py-1.5 rounded-lg border border-slate-300" />
               <label class="text-slate-500 font-medium">To / As Of:</label>
@@ -1277,7 +1281,51 @@
   <!-- Toast Notification -->
   <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2"></div>
 
-  <script src="./standalone.js?v=20261019_5"></script>
-  <script src="./app.js?v=20261019_5"></script>
+  <!-- P&L Drill-Down Modal (transactions behind any reported number) -->
+  <div id="drilldownModal" class="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-6xl max-h-[90vh] flex flex-col overflow-hidden">
+      <div class="px-6 py-4 bg-slate-900 text-white flex items-start justify-between gap-4">
+        <div>
+          <h3 id="drilldownTitle" class="font-bold text-base">Drill-Down</h3>
+          <p id="drilldownSubtitle" class="text-xs text-slate-400 mt-0.5"></p>
+        </div>
+        <button onclick="closeModal('drilldownModal')" class="text-slate-400 hover:text-white text-lg">&times;</button>
+      </div>
+      <div class="px-6 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <input type="text" id="drilldownSearch" oninput="renderDrilldownRows()" placeholder="Filter by payee, memo, entry #, account..." class="px-3 py-1.5 rounded-lg border border-slate-300 w-72" />
+        <div class="flex items-center gap-3">
+          <span id="drilldownSummary" class="text-slate-600 font-medium"></span>
+          <button onclick="exportDrilldownCSV()" class="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Export CSV</button>
+        </div>
+      </div>
+      <div class="overflow-auto flex-1">
+        <table class="w-full text-xs">
+          <thead class="bg-slate-50 text-slate-500 uppercase tracking-wider text-[10px] sticky top-0">
+            <tr>
+              <th class="py-2.5 px-3 text-left">Date</th>
+              <th class="py-2.5 px-3 text-left">Entry #</th>
+              <th class="py-2.5 px-3 text-left">Payee / Memo</th>
+              <th class="py-2.5 px-3 text-left">P&amp;L Account</th>
+              <th class="py-2.5 px-3 text-left">Contra Account (Paid From / Into)</th>
+              <th class="py-2.5 px-3 text-right">Amount</th>
+              <th class="py-2.5 px-3 text-right">Running Total</th>
+              <th class="py-2.5 px-3 text-center">Action</th>
+            </tr>
+          </thead>
+          <tbody id="drilldownBody" class="divide-y divide-slate-100"></tbody>
+          <tfoot>
+            <tr class="bg-slate-900 text-white font-bold">
+              <td colspan="5" class="py-2.5 px-3">Total</td>
+              <td id="drilldownTotal" class="py-2.5 px-3 text-right font-mono"></td>
+              <td colspan="2"></td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="./standalone.js?v=20261031_1"></script>
+  <script src="./app.js?v=20261031_1"></script>
 </body>
 </html>

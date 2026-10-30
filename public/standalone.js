@@ -623,6 +623,53 @@
     return { startDate, endDate, incomeAccounts, expenseAccounts, totalIncome, totalExpenses, netIncome, savingsRate };
   }
 
+  // Line-level P&L detail (for monthly columns & drill-down), amount in normal balance
+  function computePnLDetail(store, startDate, endDate) {
+    const entryMap = new Map(store.journal_entries.map((e) => [e.id, e]));
+    const accById = new Map(store.accounts.map((a) => [a.id, a]));
+    const linesByEntry = new Map();
+    for (const jl of store.journal_lines) {
+      if (!linesByEntry.has(jl.journal_entry_id)) linesByEntry.set(jl.journal_entry_id, []);
+      linesByEntry.get(jl.journal_entry_id).push(jl);
+    }
+    const rows = [];
+    for (const jl of store.journal_lines) {
+      const a = accById.get(jl.account_id);
+      if (!a || (a.type !== 'INCOME' && a.type !== 'EXPENSE')) continue;
+      const je = entryMap.get(jl.journal_entry_id);
+      if (!je || je.date < startDate || je.date > endDate) continue;
+      const contra = (linesByEntry.get(je.id) || [])
+        .filter((x) => x.id !== jl.id)
+        .map((x) => {
+          const ca = accById.get(x.account_id);
+          return ca ? `${ca.code} - ${ca.name}` : '';
+        })
+        .filter(Boolean)
+        .join('; ');
+      rows.push({
+        line_id: jl.id,
+        entry_id: je.id,
+        account_id: a.id,
+        line_description: jl.description || '',
+        debit: round2(jl.debit || 0),
+        credit: round2(jl.credit || 0),
+        entry_number: je.entry_number,
+        date: je.date,
+        payee: je.payee || '',
+        memo: je.memo || '',
+        reference: je.reference || '',
+        source_type: je.source_type,
+        account_code: a.code,
+        account_name: a.name,
+        account_type: a.type,
+        contra_accounts: contra,
+        amount: computeNormalBalance(a.type, jl.debit || 0, jl.credit || 0)
+      });
+    }
+    rows.sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : x.entry_id - y.entry_id || x.line_id - y.line_id));
+    return rows;
+  }
+
   function computeBalanceSheet(store, asOfDate) {
     const accs = getAccountsWithBalances(store, asOfDate);
     const assets = accs.filter((a) => a.type === 'ASSET');
@@ -1544,6 +1591,7 @@
 
       return {
         pnl, balanceSheet, trialBalance, cashFlow,
+        pnlLines: computePnLDetail(store, startDate, endDate),
         taxSummary: {
           startDate, endDate, estTaxRate,
           incomeRows: pnl.incomeAccounts,
