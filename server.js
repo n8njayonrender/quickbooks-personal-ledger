@@ -499,12 +499,85 @@ app.post('/api/journal-lines/reclassify', (req, res) => {
   }
 });
 
-// 6. DELETE JOURNAL ENTRY
+// 6. DELETE JOURNAL ENTRY (SINGLE OR BULK) & IMPORTED CSV BATCH DELETE
 app.delete('/api/journal-entries/:id', (req, res) => {
   try {
     const id = Number(req.params.id);
+    db.prepare('DELETE FROM journal_lines WHERE journal_entry_id = ?').run(id);
     db.prepare('DELETE FROM journal_entries WHERE id = ?').run(id);
     res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/journal-entries/bulk-delete', (req, res) => {
+  try {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map(Number).filter(Boolean) : [];
+    if (ids.length === 0) throw new Error('No transactions selected for deletion.');
+    const delLines = db.prepare('DELETE FROM journal_lines WHERE journal_entry_id = ?');
+    const delEntry = db.prepare('DELETE FROM journal_entries WHERE id = ?');
+    let deletedCount = 0;
+    db.exec('BEGIN');
+    try {
+      for (const id of ids) {
+        delLines.run(id);
+        const r = delEntry.run(id);
+        deletedCount += r.changes || 0;
+      }
+      db.exec('COMMIT');
+    } catch (inner) {
+      db.exec('ROLLBACK');
+      throw inner;
+    }
+    res.json({ ok: true, deletedCount });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/import/batches/bulk-delete', (req, res) => {
+  try {
+    const batchIds = Array.isArray(req.body.batchIds) ? req.body.batchIds.map(Number).filter(Boolean) : [];
+    const deleteAllCsvImports = Boolean(req.body.deleteAllCsvImports);
+    if (!deleteAllCsvImports && batchIds.length === 0) {
+      throw new Error('Select at least one imported CSV batch to delete.');
+    }
+    let deletedEntries = 0;
+    let deletedBatches = 0;
+    db.exec('BEGIN');
+    try {
+      if (deleteAllCsvImports) {
+        const entries = db.prepare(`SELECT id FROM journal_entries WHERE source_type = 'CSV_IMPORT' OR import_batch_id IS NOT NULL`).all();
+        const delLines = db.prepare('DELETE FROM journal_lines WHERE journal_entry_id = ?');
+        const delEntry = db.prepare('DELETE FROM journal_entries WHERE id = ?');
+        for (const e of entries) {
+          delLines.run(e.id);
+          delEntry.run(e.id);
+          deletedEntries++;
+        }
+        deletedBatches = db.prepare('DELETE FROM import_batches').run().changes || 0;
+      } else {
+        const delLines = db.prepare('DELETE FROM journal_lines WHERE journal_entry_id = ?');
+        const delEntry = db.prepare('DELETE FROM journal_entries WHERE id = ?');
+        const getBatchEntries = db.prepare('SELECT id FROM journal_entries WHERE import_batch_id = ?');
+        const delBatch = db.prepare('DELETE FROM import_batches WHERE id = ?');
+        for (const bid of batchIds) {
+          const entries = getBatchEntries.all(bid);
+          for (const e of entries) {
+            delLines.run(e.id);
+            delEntry.run(e.id);
+            deletedEntries++;
+          }
+          deletedBatches += delBatch.run(bid).changes || 0;
+        }
+      }
+      db.exec('COMMIT');
+    } catch (inner) {
+      db.exec('ROLLBACK');
+      throw inner;
+    }
+    res.json({ ok: true, deletedBatches, deletedEntries });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

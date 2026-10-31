@@ -26,7 +26,9 @@ let APP = {
   csvRawText: '',
   csvFilename: 'bank_statement.csv',
   csvPreviewData: null,
-  reconcileData: null
+  reconcileData: null,
+  selectedTxIds: new Set(),
+  selectedBatchIds: new Set()
 };
 
 let cashFlowChartInstance = null;
@@ -455,6 +457,21 @@ function renderTransactionsView() {
     return true;
   });
 
+  const validIds = new Set(APP.transactions.map((t) => Number(t.id)));
+  for (const id of [...APP.selectedTxIds]) {
+    if (!validIds.has(Number(id))) APP.selectedTxIds.delete(id);
+  }
+  const bulkBtn = document.getElementById('txBulkDeleteBtn');
+  if (bulkBtn) {
+    bulkBtn.textContent = APP.selectedTxIds.size > 0
+      ? `Bulk Delete Selected (${APP.selectedTxIds.size})`
+      : 'Bulk Delete Selected';
+  }
+  const selectAllEl = document.getElementById('txSelectAll');
+  if (selectAllEl) {
+    selectAllEl.checked = filtered.length > 0 && filtered.every((tx) => APP.selectedTxIds.has(Number(tx.id)));
+  }
+
   if (APP.txViewMode === 'SIMPLE') {
     const tbody = document.getElementById('simpleRegisterBody');
     tbody.innerHTML = filtered.map((tx) => {
@@ -463,9 +480,13 @@ function renderTransactionsView() {
         : tx.reconciled_status === 'CLEARED'
         ? '<span class="px-2 py-0.5 rounded-full bg-blue-100 text-blue-800 font-semibold text-[10px]">C</span>'
         : '<span class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 font-mono text-[10px]">U</span>';
+      const isSelected = APP.selectedTxIds.has(Number(tx.id));
 
       return `
-        <tr class="hover:bg-slate-50/80">
+        <tr class="${isSelected ? 'bg-rose-50/40' : 'hover:bg-slate-50/80'}">
+          <td class="py-3 pl-3 pr-1">
+            <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleSelectTransaction(${tx.id}, this.checked)" class="rounded text-rose-600 cursor-pointer" />
+          </td>
           <td class="py-3 px-3">
             <div class="font-mono font-semibold text-slate-800">${escapeHtml(tx.date)}</div>
             <div class="font-mono text-[10px] text-slate-400">${escapeHtml(tx.entry_number)}</div>
@@ -507,6 +528,7 @@ function renderTransactionsView() {
       <div class="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div class="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between text-xs">
           <div class="flex items-center gap-3">
+            <input type="checkbox" ${APP.selectedTxIds.has(Number(tx.id)) ? 'checked' : ''} onchange="toggleSelectTransaction(${tx.id}, this.checked)" class="rounded text-rose-600 cursor-pointer" />
             <span class="font-mono font-bold text-slate-900">${escapeHtml(tx.entry_number)}</span>
             <span class="font-mono text-slate-600">${escapeHtml(tx.date)}</span>
             <span class="px-2 py-0.5 rounded bg-slate-200/70 text-slate-700 text-[10px] font-semibold">${escapeHtml(tx.source_type)}</span>
@@ -577,7 +599,53 @@ async function quickToggleTaxDeductible(entryId, isDeductible) {
 async function deleteJournalEntry(entryId) {
   try {
     await apiFetch(`/api/journal-entries/${entryId}`, { method: 'DELETE' });
+    APP.selectedTxIds.delete(Number(entryId));
     showToast('Journal entry deleted');
+    await loadBootstrap();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function toggleSelectTransaction(entryId, checked) {
+  if (checked) APP.selectedTxIds.add(Number(entryId));
+  else APP.selectedTxIds.delete(Number(entryId));
+  renderTransactionsView();
+}
+
+function toggleSelectAllTransactions(checked) {
+  const search = (document.getElementById('txSearchInput')?.value || '').toLowerCase().trim();
+  const accId = Number(document.getElementById('txAccountFilter')?.value || 0);
+  const typeFilter = document.getElementById('txTypeFilter')?.value || '';
+  const filtered = APP.transactions.filter((tx) => {
+    if (typeFilter && tx.source_type !== typeFilter) return false;
+    if (accId && !tx.lines.some((l) => l.account_id === accId)) return false;
+    if (search) {
+      const hay = `${tx.entry_number} ${tx.payee} ${tx.memo} ${tx.reference} ${tx.category_account_name}`.toLowerCase();
+      if (!hay.includes(search)) return false;
+    }
+    return true;
+  });
+  filtered.forEach((tx) => {
+    if (checked) APP.selectedTxIds.add(Number(tx.id));
+    else APP.selectedTxIds.delete(Number(tx.id));
+  });
+  renderTransactionsView();
+}
+
+async function bulkDeleteSelectedTransactions() {
+  const ids = [...APP.selectedTxIds];
+  if (ids.length === 0) {
+    showToast('Tick one or more transactions in the table first, then click Bulk Delete Selected.', 'error');
+    return;
+  }
+  try {
+    const res = await apiFetch('/api/journal-entries/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ ids })
+    });
+    APP.selectedTxIds.clear();
+    showToast(`Bulk deleted ${res.deletedCount ?? ids.length} transaction(s)!`);
     await loadBootstrap();
   } catch (err) {
     showToast(err.message, 'error');
@@ -729,9 +797,51 @@ function renderCSVPreviewRows() {
         <td class="py-2 px-1.5 text-right">
           <input type="number" step="0.01" min="0" value="${Number(t.absAmount || 0).toFixed(2)}" oninput="onCSVPreviewAmountChange(${idx}, this.value)" class="px-2 py-1 rounded border border-slate-200 bg-white text-right font-mono font-bold text-xs w-28 ${t.txType === 'INCOME' ? 'text-emerald-600' : 'text-rose-600'}" />
         </td>
+        <td class="py-2 px-1.5 text-center">
+          <button type="button" onclick="deleteSingleCSVPreviewRow(${idx})" class="px-1.5 py-0.5 rounded text-slate-400 hover:text-white hover:bg-rose-600 font-bold text-xs transition" title="Delete this row from CSV preview">&times;</button>
+        </td>
       </tr>
     `;
   }).join('');
+}
+
+function updateCSVPreviewCounters() {
+  const p = APP.csvPreviewData;
+  if (!p) return;
+  const rows = p.transactions || [];
+  p.totalRows = rows.length;
+  p.validCount = rows.length;
+  p.duplicateCount = rows.filter((t) => t.isDuplicate).length;
+  p.ruleMatchedCount = rows.filter((t) => Boolean(t.matchedRuleName || t.matchedRule || t.csvCategory)).length;
+  document.getElementById('csvStatTotal').textContent = p.totalRows;
+  document.getElementById('csvStatMatched').textContent = p.ruleMatchedCount;
+  document.getElementById('csvStatDuplicates').textContent = p.duplicateCount;
+  const selectAllEl = document.getElementById('csvSelectAll');
+  if (selectAllEl) {
+    selectAllEl.checked = rows.length > 0 && rows.every((t) => Boolean(t.selected));
+  }
+}
+
+function deleteSingleCSVPreviewRow(idx) {
+  if (!APP.csvPreviewData || !Array.isArray(APP.csvPreviewData.transactions)) return;
+  APP.csvPreviewData.transactions.splice(idx, 1);
+  updateCSVPreviewCounters();
+  renderCSVPreviewRows();
+}
+
+function bulkDeleteCSVPreviewRows() {
+  if (!APP.csvPreviewData || !Array.isArray(APP.csvPreviewData.transactions)) return;
+  const before = APP.csvPreviewData.transactions.length;
+  const remaining = APP.csvPreviewData.transactions.filter((t) => !t.selected);
+  const removed = before - remaining.length;
+  if (removed === 0) {
+    showToast('Tick one or more rows in the CSV preview first, then click Bulk Delete Checked Rows.', 'error');
+    return;
+  }
+  APP.csvPreviewData.transactions = remaining;
+  updateCSVPreviewCounters();
+  renderCSVPreviewRows();
+  showToast(`Removed ${removed} checked row(s) from CSV import preview!`);
 }
 
 function onCSVPreviewTxTypeChange(idx, newType) {
@@ -834,23 +944,103 @@ async function commitCSVImport() {
 function renderImportExportView() {
   renderBackupSnapshotsList();
   const list = document.getElementById('importBatchesList');
-  if (!APP.importBatches || APP.importBatches.length === 0) {
+  const batches = APP.importBatches || [];
+  const validBatchIds = new Set(batches.map((b) => Number(b.id)));
+  for (const id of [...APP.selectedBatchIds]) {
+    if (!validBatchIds.has(Number(id))) APP.selectedBatchIds.delete(id);
+  }
+  const batchSelectAllEl = document.getElementById('batchSelectAll');
+  if (batchSelectAllEl) {
+    batchSelectAllEl.checked = batches.length > 0 && batches.every((b) => APP.selectedBatchIds.has(Number(b.id)));
+  }
+
+  if (batches.length === 0) {
     list.innerHTML = `<div class="text-slate-400 italic">No CSV batches imported yet. Click "Try Instant Sample Statement" above to test!</div>`;
     return;
   }
-  list.innerHTML = APP.importBatches.map((b) => `
-    <div class="p-3 rounded-lg bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
-      <div>
-        <span class="font-semibold text-slate-800">${escapeHtml(b.filename)}</span>
-        <span class="text-slate-500 ml-2">&rarr; ${escapeHtml(b.account_code)} ${escapeHtml(b.account_name)}</span>
+  list.innerHTML = batches.map((b) => {
+    const isChecked = APP.selectedBatchIds.has(Number(b.id));
+    return `
+      <div class="p-3 rounded-lg ${isChecked ? 'bg-rose-50/50 border-rose-200' : 'bg-slate-50 border-slate-200'} border flex flex-wrap items-center justify-between gap-2">
+        <div class="flex items-center gap-2.5">
+          <input type="checkbox" ${isChecked ? 'checked' : ''} onchange="toggleSelectImportBatch(${b.id}, this.checked)" class="rounded text-rose-600 cursor-pointer" />
+          <div>
+            <span class="font-semibold text-slate-800">${escapeHtml(b.filename)}</span>
+            <span class="text-slate-500 ml-2">&rarr; ${escapeHtml(b.account_code)} ${escapeHtml(b.account_name)}</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 font-mono text-[11px]">
+          <span class="text-emerald-700">${b.imported_count} imported</span>
+          <span class="text-slate-500">In: ${fmtMoney(b.total_inflow)}</span>
+          <span class="text-rose-600">Out: ${fmtMoney(b.total_outflow)}</span>
+          <button type="button" onclick="deleteSingleImportBatch(${b.id})" class="px-2 py-1 rounded border border-rose-200 bg-white hover:bg-rose-600 hover:text-white text-rose-700 font-sans font-semibold text-[11px] transition" title="Delete this imported CSV batch and all transactions imported with it">
+            Delete Batch
+          </button>
+        </div>
       </div>
-      <div class="flex items-center gap-3 font-mono text-[11px]">
-        <span class="text-emerald-700">${b.imported_count} imported</span>
-        <span class="text-slate-500">In: ${fmtMoney(b.total_inflow)}</span>
-        <span class="text-rose-600">Out: ${fmtMoney(b.total_outflow)}</span>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+}
+
+function toggleSelectImportBatch(batchId, checked) {
+  if (checked) APP.selectedBatchIds.add(Number(batchId));
+  else APP.selectedBatchIds.delete(Number(batchId));
+  renderImportExportView();
+}
+
+function toggleSelectAllImportBatches(checked) {
+  (APP.importBatches || []).forEach((b) => {
+    if (checked) APP.selectedBatchIds.add(Number(b.id));
+    else APP.selectedBatchIds.delete(Number(b.id));
+  });
+  renderImportExportView();
+}
+
+async function deleteSingleImportBatch(batchId) {
+  try {
+    const res = await apiFetch('/api/import/batches/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ batchIds: [Number(batchId)] })
+    });
+    APP.selectedBatchIds.delete(Number(batchId));
+    showToast(`Deleted CSV batch and ${res.deletedEntries || 0} imported transaction(s)!`);
+    await loadBootstrap();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function bulkDeleteSelectedImportBatches() {
+  const batchIds = [...APP.selectedBatchIds];
+  if (batchIds.length === 0) {
+    showToast('Tick one or more imported CSV batches first, then click Bulk Delete Selected Batches.', 'error');
+    return;
+  }
+  try {
+    const res = await apiFetch('/api/import/batches/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ batchIds })
+    });
+    APP.selectedBatchIds.clear();
+    showToast(`Bulk deleted ${res.deletedBatches || batchIds.length} CSV batch(es) and ${res.deletedEntries || 0} imported transaction(s)!`);
+    await loadBootstrap();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+async function deleteAllImportedCSVBatches() {
+  try {
+    const res = await apiFetch('/api/import/batches/bulk-delete', {
+      method: 'POST',
+      body: JSON.stringify({ deleteAllCsvImports: true })
+    });
+    APP.selectedBatchIds.clear();
+    showToast(`Deleted all ${res.deletedBatches || 0} imported CSV batch(es) and ${res.deletedEntries || 0} CSV-imported transaction(s)!`);
+    await loadBootstrap();
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
 }
 
 function renderBackupSnapshotsList() {

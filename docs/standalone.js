@@ -983,6 +983,33 @@
       return { ok: true };
     }
 
+    if (path === '/api/journal-entries/bulk-delete' && method === 'POST') {
+      const ids = new Set((Array.isArray(body.ids) ? body.ids : []).map(Number).filter(Boolean));
+      if (ids.size === 0) throw new Error('No transactions selected for deletion.');
+      const before = store.journal_entries.length;
+      store.journal_entries = store.journal_entries.filter((e) => !ids.has(Number(e.id)));
+      store.journal_lines = store.journal_lines.filter((l) => !ids.has(Number(l.journal_entry_id)));
+      saveStore(store);
+      return { ok: true, deletedCount: before - store.journal_entries.length };
+    }
+
+    if (path === '/api/import/batches/bulk-delete' && method === 'POST') {
+      const batchSet = new Set((Array.isArray(body.batchIds) ? body.batchIds : []).map(Number).filter(Boolean));
+      const deleteAll = Boolean(body.deleteAllCsvImports);
+      if (!deleteAll && batchSet.size === 0) throw new Error('Select at least one imported CSV batch to delete.');
+      const toRemoveEntryIds = new Set(
+        store.journal_entries
+          .filter((e) => deleteAll ? (e.source_type === 'CSV_IMPORT' || e.import_batch_id != null) : batchSet.has(Number(e.import_batch_id)))
+          .map((e) => Number(e.id))
+      );
+      store.journal_entries = store.journal_entries.filter((e) => !toRemoveEntryIds.has(Number(e.id)));
+      store.journal_lines = store.journal_lines.filter((l) => !toRemoveEntryIds.has(Number(l.journal_entry_id)));
+      const beforeBatches = store.import_batches.length;
+      store.import_batches = deleteAll ? [] : store.import_batches.filter((b) => !batchSet.has(Number(b.id)));
+      saveStore(store);
+      return { ok: true, deletedBatches: beforeBatches - store.import_batches.length, deletedEntries: toRemoveEntryIds.size };
+    }
+
     // CREATE ACCOUNT
     if (path === '/api/accounts' && method === 'POST') {
       const codeTrim = String(body.code || '').trim();
