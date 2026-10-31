@@ -2371,6 +2371,8 @@ function openNewTransactionModal(type = 'EXPENSE') {
   document.getElementById('simpleTxEditId').value = '';
   document.getElementById('simpleTxModalTitle').textContent = 'Record Transaction';
   document.getElementById('simpleTxSubmitBtn').textContent = 'Save & Post to Ledger';
+  document.getElementById('simpleTxDuplicateBtn')?.classList.add('hidden');
+  document.getElementById('simpleTxDuplicateNote')?.classList.add('hidden');
   document.getElementById('simpleTxAmount').value = '';
   document.getElementById('simpleTxPayee').value = '';
   document.getElementById('simpleTxRef').value = '';
@@ -2392,6 +2394,8 @@ function openEditTransactionModal(entryId) {
   document.getElementById('simpleTxEditId').value = String(tx.id);
   document.getElementById('simpleTxModalTitle').textContent = `Edit Transaction (${tx.entry_number})`;
   document.getElementById('simpleTxSubmitBtn').textContent = 'Update Transaction';
+  document.getElementById('simpleTxDuplicateBtn')?.classList.remove('hidden');
+  document.getElementById('simpleTxDuplicateNote')?.classList.add('hidden');
 
   let modalType = 'EXPENSE';
   if (tx.source_type === 'INCOME') modalType = 'INCOME';
@@ -2435,6 +2439,15 @@ function openEditTransactionModal(entryId) {
   }
 
   openModal('simpleTxModal');
+}
+
+function duplicateSimpleTransactionInModal() {
+  document.getElementById('simpleTxEditId').value = '';
+  document.getElementById('simpleTxModalTitle').textContent = 'Duplicate Transaction (Copy)';
+  document.getElementById('simpleTxSubmitBtn').textContent = 'Save & Post to Ledger';
+  document.getElementById('simpleTxDuplicateBtn')?.classList.add('hidden');
+  document.getElementById('simpleTxDuplicateNote')?.classList.remove('hidden');
+  showToast('this is a duplicate record save to post', 'error');
 }
 
 function setSimpleModalType(type) {
@@ -2517,6 +2530,8 @@ async function submitSimpleTransaction(event) {
 
     closeModal('simpleTxModal');
     document.getElementById('simpleTxEditId').value = '';
+    document.getElementById('simpleTxDuplicateBtn')?.classList.add('hidden');
+    document.getElementById('simpleTxDuplicateNote')?.classList.add('hidden');
     document.getElementById('simpleTxAmount').value = '';
     document.getElementById('simpleTxPayee').value = '';
     document.getElementById('simpleTxMemo').value = '';
@@ -2534,6 +2549,8 @@ function openJournalEntryModal() {
   if (titleEl) titleEl.textContent = 'New Double-Entry Journal Entry';
   const btnEl = document.getElementById('journalSubmitBtn');
   if (btnEl) btnEl.textContent = 'Post Journal Entry';
+  document.getElementById('journalDuplicateBtn')?.classList.add('hidden');
+  document.getElementById('jeDuplicateNote')?.classList.add('hidden');
 
   document.getElementById('jeDate').value = new Date().toISOString().slice(0, 10);
   document.getElementById('jePayee').value = '';
@@ -2555,6 +2572,8 @@ function openEditJournalEntryModal(entryId) {
   if (titleEl) titleEl.textContent = `Edit Double-Entry Journal (${tx.entry_number})`;
   const btnEl = document.getElementById('journalSubmitBtn');
   if (btnEl) btnEl.textContent = 'Update Journal Entry';
+  document.getElementById('journalDuplicateBtn')?.classList.remove('hidden');
+  document.getElementById('jeDuplicateNote')?.classList.add('hidden');
 
   document.getElementById('jeDate').value = tx.date || '2026-10-19';
   document.getElementById('jePayee').value = tx.payee || '';
@@ -2579,6 +2598,21 @@ function openEditJournalEntryModal(entryId) {
   }
   updateJournalModalTotals();
   openModal('journalModal');
+}
+
+function duplicateJournalEntryInModal() {
+  const editEl = document.getElementById('jeEditId');
+  if (editEl) editEl.value = '';
+  const titleEl = document.getElementById('journalModalTitle');
+  if (titleEl) titleEl.textContent = 'Duplicate Double-Entry Journal (Copy)';
+  const btnEl = document.getElementById('journalSubmitBtn');
+  if (btnEl) btnEl.textContent = 'Post Journal Entry';
+  document.querySelectorAll('#jeLinesBody tr').forEach((tr) => {
+    tr.dataset.reconciledStatus = 'UNRECONCILED';
+  });
+  document.getElementById('journalDuplicateBtn')?.classList.add('hidden');
+  document.getElementById('jeDuplicateNote')?.classList.remove('hidden');
+  showToast('this is a duplicate record save to post', 'error');
 }
 
 function addJournalModalLine(prefill = null) {
@@ -2680,6 +2714,8 @@ async function submitJournalEntryModal(event) {
     }
 
     if (document.getElementById('jeEditId')) document.getElementById('jeEditId').value = '';
+    document.getElementById('journalDuplicateBtn')?.classList.add('hidden');
+    document.getElementById('jeDuplicateNote')?.classList.add('hidden');
     closeModal('journalModal');
     await loadBootstrap();
   } catch (err) {

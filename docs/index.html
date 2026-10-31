@@ -122,9 +122,6 @@
           <span id="baseCurrencyBadge" class="text-xs font-mono px-2.5 py-1 rounded-md bg-slate-100 text-slate-700 border border-slate-200">Home: NZD (NZ$)</span>
         </div>
         <div class="flex items-center gap-2">
-          <button onclick="clearAllTransactions()" class="px-3 py-2 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold text-xs flex items-center gap-1.5 transition" title="Clear all demo transactions and start with $0.00 balances">
-            <span>Reset / Empty Book</span>
-          </button>
           <button onclick="openOpeningBalanceModal()" class="px-3 py-2 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-semibold text-xs flex items-center gap-1.5 transition" title="Import or bulk set account opening balances with custom As-Of Dates">
             <span>Import Opening Balances</span>
           </button>
@@ -228,48 +225,50 @@
 
         <!-- ================= VIEW 2: TRANSACTIONS & GENERAL JOURNAL (HYBRID) ================= -->
         <section id="view-transactions" class="tab-view hidden space-y-5">
-          <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
-            <!-- Mode Switcher: Simple View vs Double-Entry Journal View -->
-            <div class="inline-flex rounded-lg bg-slate-100 p-1 border border-slate-200">
-              <button id="btnModeSimple" onclick="setTransactionViewMode('SIMPLE')" class="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-white text-slate-900 shadow-sm transition">
-                Simple Register View
-              </button>
-              <button id="btnModeJournal" onclick="setTransactionViewMode('JOURNAL')" class="px-3.5 py-1.5 rounded-md text-xs font-semibold text-slate-600 hover:text-slate-900 transition">
-                Double-Entry Journal View (DR / CR)
-              </button>
-            </div>
+          <div class="sticky -top-6 z-20 -mx-6 px-6 pt-6 pb-3 bg-slate-50/95 backdrop-blur-xs">
+            <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
+              <!-- Mode Switcher: Simple View vs Double-Entry Journal View -->
+              <div class="inline-flex rounded-lg bg-slate-100 p-1 border border-slate-200">
+                <button id="btnModeSimple" onclick="setTransactionViewMode('SIMPLE')" class="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-white text-slate-900 shadow-sm transition">
+                  Simple Register View
+                </button>
+                <button id="btnModeJournal" onclick="setTransactionViewMode('JOURNAL')" class="px-3.5 py-1.5 rounded-md text-xs font-semibold text-slate-600 hover:text-slate-900 transition">
+                  Double-Entry Journal View (DR / CR)
+                </button>
+              </div>
 
-            <!-- Filters & Quick Upload Action -->
-            <div class="flex flex-wrap items-center gap-2">
-              <button onclick="switchTab('import-export')" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition flex items-center gap-1">
-                <span>&uarr; Upload Transactions (.CSV)</span>
-              </button>
-              <input type="text" id="txSearchInput" oninput="renderTransactionsView()" placeholder="Search payee, memo, JE-#..." class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-48 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
-              <select id="txAccountFilter" onchange="renderTransactionsView()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white">
-                <option value="">All Accounts</option>
-              </select>
-              <select id="txTypeFilter" onchange="renderTransactionsView()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white">
-                <option value="">All Types</option>
-                <option value="EXPENSE">Expenses</option>
-                <option value="INCOME">Income / Deposits</option>
-                <option value="TRANSFER">Transfers</option>
-                <option value="CSV_IMPORT">Bank CSV Imports</option>
-                <option value="INVOICE">Invoices</option>
-                <option value="BILL">Bills</option>
-                <option value="JOURNAL">Manual Journal Entries</option>
-                <option value="OPENING_BALANCE">Opening Balances</option>
-              </select>
-              <a href="/api/export/transactions.csv" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition">
-                Download CSV
-              </a>
+              <!-- Filters & Quick Upload Action -->
+              <div class="flex flex-wrap items-center gap-2">
+                <button onclick="switchTab('import-export')" class="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs transition flex items-center gap-1">
+                  <span>&uarr; Upload Transactions (.CSV)</span>
+                </button>
+                <input type="text" id="txSearchInput" oninput="renderTransactionsView()" placeholder="Search payee, memo, JE-#..." class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs w-48 focus:outline-none focus:ring-2 focus:ring-emerald-500" />
+                <select id="txAccountFilter" onchange="renderTransactionsView()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white">
+                  <option value="">All Accounts</option>
+                </select>
+                <select id="txTypeFilter" onchange="renderTransactionsView()" class="px-3 py-1.5 rounded-lg border border-slate-300 text-xs bg-white">
+                  <option value="">All Types</option>
+                  <option value="EXPENSE">Expenses</option>
+                  <option value="INCOME">Income / Deposits</option>
+                  <option value="TRANSFER">Transfers</option>
+                  <option value="CSV_IMPORT">Bank CSV Imports</option>
+                  <option value="INVOICE">Invoices</option>
+                  <option value="BILL">Bills</option>
+                  <option value="JOURNAL">Manual Journal Entries</option>
+                  <option value="OPENING_BALANCE">Opening Balances</option>
+                </select>
+                <a href="/api/export/transactions.csv" class="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition">
+                  Download CSV
+                </a>
+              </div>
             </div>
           </div>
 
           <!-- Simple Register Table -->
-          <div id="simpleRegisterContainer" class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+          <div id="simpleRegisterContainer" class="bg-white rounded-xl border border-slate-200 shadow-sm">
             <div class="overflow-x-auto">
               <table class="w-full text-left border-collapse text-xs">
-                <thead>
+                <thead class="sticky top-0 z-10 bg-slate-50 shadow-xs">
                   <tr class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[11px]">
                     <th class="py-3 px-3">Date / Entry #</th>
                     <th class="py-3 px-3">Type</th>
@@ -517,38 +516,45 @@
         </section>
 
         <!-- ================= VIEW 4: CHART OF ACCOUNTS & GENERAL LEDGER ================= -->
-        <section id="view-accounts" class="tab-view hidden space-y-5">
-          <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
-            <div class="flex flex-wrap items-center gap-1.5" id="coaTypeFilterBar">
-              <button onclick="setCOAFilter('ALL')" data-coa="ALL" class="coa-filter-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-white">All Accounts</button>
-              <button onclick="setCOAFilter('ASSET')" data-coa="ASSET" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Assets (1000s)</button>
-              <button onclick="setCOAFilter('LIABILITY')" data-coa="LIABILITY" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Liabilities (2000s)</button>
-              <button onclick="setCOAFilter('EQUITY')" data-coa="EQUITY" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Equity (3000s)</button>
-              <button onclick="setCOAFilter('INCOME')" data-coa="INCOME" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Income (4000s)</button>
-              <button onclick="setCOAFilter('EXPENSE')" data-coa="EXPENSE" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Expenses (5000s)</button>
-            </div>
-            <div class="flex flex-wrap items-center gap-2">
-              <button onclick="openOpeningBalanceModal()" class="px-3.5 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-xs font-semibold transition">
-                &uarr; Import / Set Opening Balances
-              </button>
-              <button onclick="openAccountModal()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition">
-                + New Account
-              </button>
-            </div>
-          </div>
-
-          <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <section id="view-accounts" class="tab-view hidden">
+          <div class="bg-white rounded-xl border border-slate-200 shadow-sm">
             <table class="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr class="bg-slate-50 border-b border-slate-200 text-slate-500 uppercase tracking-wider text-[11px]">
-                  <th class="py-3 px-4">Code</th>
-                  <th class="py-3 px-4">Account Name</th>
-                  <th class="py-3 px-4">Type / Subtype</th>
-                  <th class="py-3 px-4">Tax Schedule / Notes</th>
-                  <th class="py-3 px-4 text-right">Total Debits</th>
-                  <th class="py-3 px-4 text-right">Total Credits</th>
-                  <th class="py-3 px-4 text-right">Normal Balance</th>
-                  <th class="py-3 px-4 text-right">Ledger &amp; Actions</th>
+              <thead class="sticky -top-6 z-20 shadow-xs">
+                <!-- Frozen Top Action & Filter Bar -->
+                <tr class="bg-slate-50">
+                  <th colspan="8" class="p-0 font-normal border-b border-slate-200">
+                    <div class="pt-6 pb-3 bg-slate-50">
+                      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-3">
+                        <div class="flex flex-wrap items-center gap-1.5" id="coaTypeFilterBar">
+                          <button onclick="setCOAFilter('ALL')" data-coa="ALL" class="coa-filter-btn active px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-900 text-white">All Accounts</button>
+                          <button onclick="setCOAFilter('ASSET')" data-coa="ASSET" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Assets (1000s)</button>
+                          <button onclick="setCOAFilter('LIABILITY')" data-coa="LIABILITY" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Liabilities (2000s)</button>
+                          <button onclick="setCOAFilter('EQUITY')" data-coa="EQUITY" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Equity (3000s)</button>
+                          <button onclick="setCOAFilter('INCOME')" data-coa="INCOME" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Income (4000s)</button>
+                          <button onclick="setCOAFilter('EXPENSE')" data-coa="EXPENSE" class="coa-filter-btn px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Expenses (5000s)</button>
+                        </div>
+                        <div class="flex flex-wrap items-center gap-2">
+                          <button onclick="openOpeningBalanceModal()" class="px-3.5 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-200 text-xs font-semibold transition">
+                            &uarr; Import / Set Opening Balances
+                          </button>
+                          <button onclick="openAccountModal()" class="px-3.5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition">
+                            + New Account
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </th>
+                </tr>
+                <!-- Frozen Column Headers -->
+                <tr class="bg-slate-100 border-b border-slate-200 text-slate-600 uppercase tracking-wider text-[11px]">
+                  <th class="py-3 px-4 bg-slate-100">Code</th>
+                  <th class="py-3 px-4 bg-slate-100">Account Name</th>
+                  <th class="py-3 px-4 bg-slate-100">Type / Subtype</th>
+                  <th class="py-3 px-4 bg-slate-100">Tax Schedule / Notes</th>
+                  <th class="py-3 px-4 text-right bg-slate-100">Total Debits</th>
+                  <th class="py-3 px-4 text-right bg-slate-100">Total Credits</th>
+                  <th class="py-3 px-4 text-right bg-slate-100">Normal Balance</th>
+                  <th class="py-3 px-4 text-right bg-slate-100">Ledger &amp; Actions</th>
                 </tr>
               </thead>
               <tbody id="coaTableBody" class="divide-y divide-slate-100"></tbody>
@@ -676,27 +682,29 @@
 
         <!-- ================= VIEW 6: FINANCIAL REPORTS SUITE ================= -->
         <section id="view-reports" class="tab-view hidden space-y-5">
-          <!-- Report Selector & Date Controls -->
-          <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden">
-            <div class="flex flex-wrap items-center gap-1.5">
-              <button onclick="switchReportSubtab('pnl')" data-rep="pnl" class="rep-tab-btn active px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 text-white">Profit & Loss (P&L)</button>
-              <button onclick="switchReportSubtab('balance-sheet')" data-rep="balance-sheet" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Balance Sheet</button>
-              <button onclick="switchReportSubtab('trial-balance')" data-rep="trial-balance" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Trial Balance</button>
-              <button onclick="switchReportSubtab('cash-flow')" data-rep="cash-flow" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Cash Flow Statement</button>
-              <button onclick="switchReportSubtab('tax-summary')" data-rep="tax-summary" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Tax Summary Schedule</button>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-2 text-xs">
-              <div id="pnlViewToggle" class="flex items-center p-0.5 rounded-lg bg-slate-100 border border-slate-200 mr-1">
-                <button type="button" data-pnlmode="TOTAL" onclick="setPnlViewMode('TOTAL')" class="pnl-mode-btn px-2.5 py-1 rounded-md font-semibold bg-white text-slate-900 shadow-xs">Total</button>
-                <button type="button" data-pnlmode="MONTHLY" onclick="setPnlViewMode('MONTHLY')" class="pnl-mode-btn px-2.5 py-1 rounded-md font-semibold text-slate-600">Monthly</button>
+          <!-- Report Selector & Date Controls (Frozen Pane) -->
+          <div class="sticky -top-6 z-20 -mx-6 px-6 pt-6 pb-3 bg-slate-50/95 backdrop-blur-xs print:static print:p-0 print:m-0">
+            <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-wrap items-center justify-between gap-4 print:hidden">
+              <div class="flex flex-wrap items-center gap-1.5">
+                <button onclick="switchReportSubtab('pnl')" data-rep="pnl" class="rep-tab-btn active px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-900 text-white">Profit & Loss (P&L)</button>
+                <button onclick="switchReportSubtab('balance-sheet')" data-rep="balance-sheet" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Balance Sheet</button>
+                <button onclick="switchReportSubtab('trial-balance')" data-rep="trial-balance" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Trial Balance</button>
+                <button onclick="switchReportSubtab('cash-flow')" data-rep="cash-flow" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Cash Flow Statement</button>
+                <button onclick="switchReportSubtab('tax-summary')" data-rep="tax-summary" class="rep-tab-btn px-3.5 py-2 rounded-lg text-xs font-semibold bg-slate-100 text-slate-700 hover:bg-slate-200">Tax Summary Schedule</button>
               </div>
-              <label class="text-slate-500 font-medium">From:</label>
-              <input type="date" id="repStartDate" value="2026-01-01" onchange="loadAndRenderReports()" class="px-2.5 py-1.5 rounded-lg border border-slate-300" />
-              <label class="text-slate-500 font-medium">To / As Of:</label>
-              <input type="date" id="repEndDate" value="2026-10-31" onchange="loadAndRenderReports()" class="px-2.5 py-1.5 rounded-lg border border-slate-300" />
-              <button onclick="exportActiveReportCSV()" class="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Export CSV</button>
-              <button onclick="window.print()" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Print / PDF</button>
+
+              <div class="flex flex-wrap items-center gap-2 text-xs">
+                <div id="pnlViewToggle" class="flex items-center p-0.5 rounded-lg bg-slate-100 border border-slate-200 mr-1">
+                  <button type="button" data-pnlmode="TOTAL" onclick="setPnlViewMode('TOTAL')" class="pnl-mode-btn px-2.5 py-1 rounded-md font-semibold bg-white text-slate-900 shadow-xs">Total</button>
+                  <button type="button" data-pnlmode="MONTHLY" onclick="setPnlViewMode('MONTHLY')" class="pnl-mode-btn px-2.5 py-1 rounded-md font-semibold text-slate-600">Monthly</button>
+                </div>
+                <label class="text-slate-500 font-medium">From:</label>
+                <input type="date" id="repStartDate" value="2026-01-01" onchange="loadAndRenderReports()" class="px-2.5 py-1.5 rounded-lg border border-slate-300" />
+                <label class="text-slate-500 font-medium">To / As Of:</label>
+                <input type="date" id="repEndDate" value="2026-10-31" onchange="loadAndRenderReports()" class="px-2.5 py-1.5 rounded-lg border border-slate-300" />
+                <button onclick="exportActiveReportCSV()" class="px-3 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">Export CSV</button>
+                <button onclick="window.print()" class="px-3 py-1.5 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Print / PDF</button>
+              </div>
             </div>
           </div>
 
@@ -991,8 +999,14 @@
           </label>
         </div>
 
+        <div id="simpleTxDuplicateNote" class="hidden rounded-lg bg-rose-50 border border-rose-300 px-3.5 py-2.5 text-rose-600 font-bold text-xs flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-rose-600 shrink-0 animate-pulse"></span>
+          <span>this is a duplicate record save to post</span>
+        </div>
+
         <div class="flex justify-end gap-2 pt-3 border-t border-slate-200">
           <button type="button" onclick="closeModal('simpleTxModal')" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Cancel</button>
+          <button type="button" id="simpleTxDuplicateBtn" onclick="duplicateSimpleTransactionInModal()" class="hidden px-4 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold transition">Duplicate Record</button>
           <button type="submit" id="simpleTxSubmitBtn" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Save &amp; Post to Ledger</button>
         </div>
       </form>
@@ -1052,10 +1066,16 @@
           </table>
         </div>
 
+        <div id="jeDuplicateNote" class="hidden rounded-lg bg-rose-50 border border-rose-300 px-3.5 py-2.5 text-rose-600 font-bold text-xs flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-rose-600 shrink-0 animate-pulse"></span>
+          <span>this is a duplicate record save to post</span>
+        </div>
+
         <div class="flex items-center justify-between pt-2">
           <div id="jeBalanceStatus" class="font-mono text-xs font-semibold text-emerald-600">Balanced ($0.00 difference)</div>
           <div class="flex gap-2">
             <button type="button" onclick="closeModal('journalModal')" class="px-4 py-2 rounded-lg border border-slate-300 hover:bg-slate-50 text-slate-700 font-semibold">Cancel</button>
+            <button type="button" id="journalDuplicateBtn" onclick="duplicateJournalEntryInModal()" class="hidden px-4 py-2 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold transition">Duplicate Record</button>
             <button type="submit" id="journalSubmitBtn" class="px-5 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm">Post Journal Entry</button>
           </div>
         </div>
@@ -1340,7 +1360,7 @@
     </div>
   </div>
 
-  <script src="./standalone.js?v=20261031_2"></script>
-  <script src="./app.js?v=20261031_2"></script>
+  <script src="./standalone.js?v=20261031_3"></script>
+  <script src="./app.js?v=20261031_3"></script>
 </body>
 </html>
