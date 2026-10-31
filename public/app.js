@@ -1478,12 +1478,33 @@ function renderPnLReport(box, org) {
 function openPnlDrilldown(idx) {
   const spec = APP.pnlDrillSpecs[idx];
   if (!spec) return;
-  APP.drilldown = { spec, lines: getPnlDrillLines(spec) };
+  APP.drilldown = { spec, lines: getPnlDrillLines(spec), pending: {}, selected: new Set() };
   document.getElementById('drilldownTitle').textContent = `Drill-Down: ${spec.title || 'P&L Detail'}`;
   document.getElementById('drilldownSubtitle').textContent = `Period ${spec.start} to ${spec.end}${spec.mode === 'NET' ? ' • Income shown positive, expenses negative' : ''}`;
   document.getElementById('drilldownSearch').value = '';
+  const bulk = document.getElementById('drilldownBulkAccount');
+  if (bulk) bulk.innerHTML = `<option value="">— Choose GL account —</option>${buildGLAccountOptions(null)}`;
   renderDrilldownRows();
   openModal('drilldownModal');
+}
+
+// Grouped <option> list of active GL accounts (P&L accounts first) for reclassification
+const GL_TYPE_ORDER = ['EXPENSE', 'INCOME', 'ASSET', 'LIABILITY', 'EQUITY'];
+const GL_TYPE_LABEL = { EXPENSE: 'Expenses', INCOME: 'Income', ASSET: 'Assets', LIABILITY: 'Liabilities', EQUITY: 'Equity' };
+function buildGLAccountOptions(selectedId) {
+  const accs = APP.accounts.filter((a) => a.is_active !== 0 || Number(a.id) === Number(selectedId));
+  return GL_TYPE_ORDER.map((t) => {
+    const group = accs.filter((a) => a.type === t).sort((x, y) => String(x.code).localeCompare(String(y.code)));
+    if (group.length === 0) return '';
+    return `<optgroup label="${GL_TYPE_LABEL[t]}">${group.map((a) =>
+      `<option value="${a.id}" ${Number(a.id) === Number(selectedId) ? 'selected' : ''}>${escapeHtml(a.code)} - ${escapeHtml(a.name)}</option>`
+    ).join('')}</optgroup>`;
+  }).join('');
+}
+
+function getAccountLabel(accountId) {
+  const a = APP.accounts.find((x) => Number(x.id) === Number(accountId));
+  return a ? `${a.code} - ${a.name}` : `Account #${accountId}`;
 }
 
 function getFilteredDrilldownLines() {
@@ -1498,24 +1519,35 @@ function getFilteredDrilldownLines() {
 
 function renderDrilldownRows() {
   const rows = getFilteredDrilldownLines();
+  const dd = APP.drilldown || { pending: {}, selected: new Set() };
   let running = 0;
   const body = document.getElementById('drilldownBody');
   if (rows.length === 0) {
-    body.innerHTML = `<tr><td colspan="8" class="py-8 text-center text-slate-400">No transactions found for this figure.</td></tr>`;
+    body.innerHTML = `<tr><td colspan="9" class="py-8 text-center text-slate-400">No transactions found for this figure.</td></tr>`;
   } else {
     body.innerHTML = rows.map((l) => {
       running = Math.round((running + l.signed) * 100) / 100;
       const desc = l.payee || l.memo || l.line_description || '';
       const sub = l.memo && l.memo !== desc ? l.memo : (l.line_description && l.line_description !== desc ? l.line_description : '');
+      const pendingAcc = dd.pending[l.line_id];
+      const isChanged = pendingAcc !== undefined && Number(pendingAcc) !== Number(l.account_id);
+      const effectiveAcc = isChanged ? pendingAcc : l.account_id;
+      const checked = dd.selected.has(l.line_id) ? 'checked' : '';
       return `
-        <tr class="hover:bg-slate-50">
+        <tr class="${isChanged ? 'bg-amber-50' : 'hover:bg-slate-50'}">
+          <td class="py-2 pl-3 pr-1"><input type="checkbox" ${checked} onchange="toggleDrilldownLine(${Number(l.line_id)}, this.checked)" /></td>
           <td class="py-2 px-3 whitespace-nowrap font-mono">${escapeHtml(l.date)}</td>
           <td class="py-2 px-3 whitespace-nowrap font-mono text-slate-500">${escapeHtml(l.entry_number || '')}</td>
           <td class="py-2 px-3">
             <div class="font-medium text-slate-800">${escapeHtml(desc)}</div>
             ${sub ? `<div class="text-[11px] text-slate-400">${escapeHtml(sub)}</div>` : ''}
           </td>
-          <td class="py-2 px-3 whitespace-nowrap"><span class="font-mono text-slate-400 mr-1">${escapeHtml(l.account_code)}</span>${escapeHtml(l.account_name)}</td>
+          <td class="py-2 px-3">
+            <select onchange="setDrilldownLineAccount(${Number(l.line_id)}, this.value)" title="Revise the GL account for this line" class="w-56 px-2 py-1 rounded-md border ${isChanged ? 'border-amber-400 bg-white font-semibold text-amber-800' : 'border-slate-200 bg-white hover:border-emerald-400'} text-xs">
+              ${buildGLAccountOptions(effectiveAcc)}
+            </select>
+            ${isChanged ? `<div class="text-[10px] text-amber-700 mt-0.5">was: ${escapeHtml(l.account_code)} - ${escapeHtml(l.account_name)}</div>` : ''}
+          </td>
           <td class="py-2 px-3 text-slate-500">${escapeHtml(l.contra_accounts || '')}</td>
           <td class="py-2 px-3 text-right font-mono font-semibold ${l.signed < 0 ? 'text-rose-600' : 'text-slate-900'}">${fmtMoney(l.signed)}</td>
           <td class="py-2 px-3 text-right font-mono text-slate-500">${fmtMoney(running)}</td>
@@ -1531,9 +1563,117 @@ function renderDrilldownRows() {
   document.getElementById('drilldownSummary').textContent = rows.length === all
     ? `${rows.length} line(s)`
     : `${rows.length} of ${all} line(s) shown`;
+  const selAll = document.getElementById('drilldownSelectAll');
+  if (selAll) selAll.checked = rows.length > 0 && rows.every((l) => dd.selected.has(l.line_id));
+  updateDrilldownPendingBar();
+}
+
+function getDrilldownPendingChanges() {
+  if (!APP.drilldown) return [];
+  return APP.drilldown.lines
+    .filter((l) => APP.drilldown.pending[l.line_id] !== undefined && Number(APP.drilldown.pending[l.line_id]) !== Number(l.account_id))
+    .map((l) => ({ line_id: Number(l.line_id), account_id: Number(APP.drilldown.pending[l.line_id]) }));
+}
+
+function updateDrilldownPendingBar() {
+  const n = getDrilldownPendingChanges().length;
+  const info = document.getElementById('drilldownPendingInfo');
+  const save = document.getElementById('drilldownSaveBtn');
+  const discard = document.getElementById('drilldownDiscardBtn');
+  if (info) info.textContent = n > 0 ? `${n} unsaved change(s)` : '';
+  if (save) {
+    save.disabled = n === 0;
+    save.textContent = n > 0 ? `Save ${n} Change(s)` : 'Save Changes';
+  }
+  if (discard) discard.disabled = n === 0;
+}
+
+function setDrilldownLineAccount(lineId, accountId) {
+  if (!APP.drilldown) return;
+  const line = APP.drilldown.lines.find((l) => Number(l.line_id) === Number(lineId));
+  if (!line) return;
+  if (!accountId || Number(accountId) === Number(line.account_id)) delete APP.drilldown.pending[lineId];
+  else APP.drilldown.pending[lineId] = Number(accountId);
+  renderDrilldownRows();
+}
+
+function toggleDrilldownLine(lineId, checked) {
+  if (!APP.drilldown) return;
+  if (checked) APP.drilldown.selected.add(Number(lineId));
+  else APP.drilldown.selected.delete(Number(lineId));
+  renderDrilldownRows();
+}
+
+function toggleDrilldownSelectAll(checked) {
+  if (!APP.drilldown) return;
+  for (const l of getFilteredDrilldownLines()) {
+    if (checked) APP.drilldown.selected.add(Number(l.line_id));
+    else APP.drilldown.selected.delete(Number(l.line_id));
+  }
+  renderDrilldownRows();
+}
+
+function applyDrilldownBulkAccount() {
+  if (!APP.drilldown) return;
+  const accId = Number(document.getElementById('drilldownBulkAccount')?.value || 0);
+  if (!accId) {
+    showToast('Choose the GL account to reclassify the selected lines to.', 'error');
+    return;
+  }
+  const selected = APP.drilldown.lines.filter((l) => APP.drilldown.selected.has(Number(l.line_id)));
+  if (selected.length === 0) {
+    showToast('Tick one or more lines first, then click Apply to Selected.', 'error');
+    return;
+  }
+  for (const l of selected) {
+    if (Number(l.account_id) === accId) delete APP.drilldown.pending[l.line_id];
+    else APP.drilldown.pending[l.line_id] = accId;
+  }
+  renderDrilldownRows();
+  showToast(`${selected.length} line(s) set to ${getAccountLabel(accId)}. Click Save to post the change.`);
+}
+
+function discardDrilldownChanges() {
+  if (!APP.drilldown) return;
+  APP.drilldown.pending = {};
+  renderDrilldownRows();
+}
+
+async function saveDrilldownChanges() {
+  const changes = getDrilldownPendingChanges();
+  if (changes.length === 0) return;
+  const save = document.getElementById('drilldownSaveBtn');
+  if (save) { save.disabled = true; save.textContent = 'Saving...'; }
+  try {
+    await apiFetch('/api/journal-lines/reclassify', {
+      method: 'POST',
+      body: JSON.stringify({ changes })
+    });
+    const targets = [...new Set(changes.map((c) => c.account_id))].map(getAccountLabel).join(', ');
+    showToast(`${changes.length} line(s) reclassified to ${targets}. Reports updated.`);
+    APP.drilldown.pending = {};
+    APP.drilldown.selected = new Set();
+    // Refresh the report figures, then rebuild this drill-down from the fresh data
+    await loadAndRenderReports();
+    APP.drilldown.lines = getPnlDrillLines(APP.drilldown.spec);
+    renderDrilldownRows();
+    loadBootstrap(); // refresh account balances, register & dashboard in the background
+  } catch (err) {
+    showToast(err.message, 'error');
+    updateDrilldownPendingBar();
+  }
+}
+
+function closeDrilldown() {
+  const n = getDrilldownPendingChanges().length;
+  if (n > 0 && !confirm(`Discard ${n} unsaved GL account change(s)?`)) return;
+  if (APP.drilldown) APP.drilldown.pending = {};
+  closeModal('drilldownModal');
 }
 
 async function editFromDrilldown(entryId, date) {
+  const n = getDrilldownPendingChanges().length;
+  if (n > 0 && !confirm(`You have ${n} unsaved GL account change(s) in this drill-down. Discard them and open the entry editor?`)) return;
   let tx = APP.transactions.find((t) => t.id === Number(entryId));
   if (!tx) {
     // Entry may be older than the recent transactions cached at bootstrap; fetch it by date
@@ -1551,6 +1691,7 @@ async function editFromDrilldown(entryId, date) {
     showToast('Could not load this entry for editing. Open it from the Transactions register.', 'error');
     return;
   }
+  if (APP.drilldown) APP.drilldown.pending = {};
   closeModal('drilldownModal');
   openEditTransactionModal(entryId);
 }

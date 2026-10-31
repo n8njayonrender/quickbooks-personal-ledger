@@ -960,6 +960,21 @@
       return { ok: true };
     }
 
+    if (path === '/api/journal-lines/reclassify' && method === 'POST') {
+      const changes = Array.isArray(body.changes) ? body.changes : [];
+      if (changes.length === 0) throw new Error('No reclassification changes supplied.');
+      for (const c of changes) {
+        if (!store.journal_lines.some((l) => l.id === Number(c.line_id))) throw new Error(`Journal line ${c.line_id} not found.`);
+        if (!accMap.get(Number(c.account_id))) throw new Error(`GL account ${c.account_id} not found.`);
+      }
+      for (const c of changes) {
+        const line = store.journal_lines.find((l) => l.id === Number(c.line_id));
+        line.account_id = Number(c.account_id);
+      }
+      saveStore(store);
+      return { ok: true, updated: changes.length };
+    }
+
     if (path.match(/^\/api\/journal-entries\/\d+$/) && method === 'DELETE') {
       const id = Number(path.split('/')[3]);
       store.journal_entries = store.journal_entries.filter((e) => e.id !== id);

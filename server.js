@@ -472,6 +472,33 @@ app.put('/api/journal-entries/:id/category', (req, res) => {
   }
 });
 
+// 5b. RECLASSIFY JOURNAL LINES TO ANOTHER GL ACCOUNT (used by P&L drill-down)
+// Body: { changes: [{ line_id, account_id }] } — debits/credits are untouched, so entries stay balanced.
+app.post('/api/journal-lines/reclassify', (req, res) => {
+  try {
+    const changes = Array.isArray(req.body.changes) ? req.body.changes : [];
+    if (changes.length === 0) throw new Error('No reclassification changes supplied.');
+    const getLine = db.prepare('SELECT id FROM journal_lines WHERE id = ?');
+    const getAcc = db.prepare('SELECT id, is_active FROM accounts WHERE id = ?');
+    for (const c of changes) {
+      if (!getLine.get(Number(c.line_id))) throw new Error(`Journal line ${c.line_id} not found.`);
+      if (!getAcc.get(Number(c.account_id))) throw new Error(`GL account ${c.account_id} not found.`);
+    }
+    const upd = db.prepare('UPDATE journal_lines SET account_id = ? WHERE id = ?');
+    db.exec('BEGIN');
+    try {
+      for (const c of changes) upd.run(Number(c.account_id), Number(c.line_id));
+      db.exec('COMMIT');
+    } catch (inner) {
+      db.exec('ROLLBACK');
+      throw inner;
+    }
+    res.json({ ok: true, updated: changes.length });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 // 6. DELETE JOURNAL ENTRY
 app.delete('/api/journal-entries/:id', (req, res) => {
   try {
