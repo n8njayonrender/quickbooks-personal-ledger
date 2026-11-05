@@ -6,6 +6,9 @@
  * and Snapshot Backup History with One-Click "Restore Latest Backup".
  */
 (function () {
+  // Static hosting (GitHub Pages or the abdawnltd.com custom domain): run fully in the browser.
+  const IS_STATIC_HOST = /(^|\.)github\.io$|(^|\.)abdawnltd\.com$/.test(window.location.hostname);
+  // Storage keys keep their original names so existing saved data stays readable.
   const STORAGE_KEY = 'QB_PERSONAL_PRO_LEDGER_V1';
   const BACKUPS_KEY = 'QB_PERSONAL_PRO_BACKUPS_V1';
 
@@ -1945,7 +1948,7 @@
     if (urlStr.includes('/api/export/opening-balances-template.csv')) {
       return new Response(generateOpeningBalancesCsv(loadStore()), { status: 200, headers: { 'Content-Type': 'text/csv' } });
     }
-    if (window.location.hostname.endsWith('github.io') && urlStr.includes('/api/')) {
+    if (IS_STATIC_HOST && urlStr.includes('/api/')) {
       try {
         const result = handleStandaloneRequest(urlStr, init);
         return new Response(JSON.stringify(result), { status: 200, headers: { 'Content-Type': 'application/json' } });
@@ -1976,7 +1979,7 @@
   document.addEventListener('click', (e) => {
     const link = e.target.closest('a[href*="/api/export/"]');
     if (!link) return;
-    if (!window.location.hostname.endsWith('github.io')) return;
+    if (!IS_STATIC_HOST) return;
 
     e.preventDefault();
     const href = link.getAttribute('href');

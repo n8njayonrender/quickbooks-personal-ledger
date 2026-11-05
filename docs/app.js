@@ -90,7 +90,7 @@ async function loadBootstrap() {
     Object.assign(APP, data);
 
     // Header & Sidebar badges
-    document.getElementById('brandOrgName').textContent = APP.settings.organization_name || 'Personal Ledger Pro';
+    document.getElementById('brandOrgName').textContent = (APP.settings.organization_name && APP.settings.organization_name !== 'Personal Ledger Pro' ? APP.settings.organization_name : 'Personal Ledger');
     const baseCode = APP.settings.base_currency || 'NZD';
     const baseCurr = APP.currencies.find((c) => c.code === baseCode);
     document.getElementById('baseCurrencyBadge').textContent = `Home: ${baseCode} (${baseCurr ? baseCurr.symbol : 'NZ$'})`;
@@ -152,7 +152,7 @@ function switchTab(tabId) {
     btn.classList.toggle('active', btn.dataset.tab === tabId);
   });
 
-  document.getElementById('pageTitle').textContent = TAB_TITLES[tabId] || 'QuickBooks Personal Pro';
+  document.getElementById('pageTitle').textContent = TAB_TITLES[tabId] || 'Personal Ledger';
 
   if (tabId === 'reconcile') {
     loadReconciliationWorkspace();
