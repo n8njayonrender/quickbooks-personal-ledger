@@ -1930,11 +1930,19 @@
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
 
+  // CSV text cell: quote it, escape quotes, and neutralise spreadsheet formulas
+  // (cells starting with = + - @ tab or CR are prefixed with ' so Excel shows them as text).
+  function csvText(value) {
+    let v = String(value == null ? '' : value);
+    if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+    return '"' + v.replace(/"/g, '""') + '"';
+  }
+
   function generateOpeningBalancesCsv(store) {
     const accounts = getAccountsWithBalances(store).filter((a) => ['ASSET', 'LIABILITY', 'EQUITY'].includes(a.type) && a.code !== '3010');
     const lines = [
       'Account Code,Account Name,Account Type,Subtype,Opening Balance,Opening Balance Date',
-      ...accounts.map((a) => `${a.code},"${String(a.name).replace(/"/g, '""')}",${a.type},${a.subtype || a.type},${Number(a.balance || 0).toFixed(2)},${a.opening_date || '2026-01-01'}`)
+      ...accounts.map((a) => `${csvText(a.code)},${csvText(a.name)},${a.type},${a.subtype || a.type},${Number(a.balance || 0).toFixed(2)},${a.opening_date || '2026-01-01'}`)
     ];
     return lines.join('\r\n');
   }
@@ -2000,14 +2008,14 @@
       for (const jl of store.journal_lines) {
         const je = entryMap.get(jl.journal_entry_id) || {};
         const a = accMap.get(jl.account_id) || {};
-        rows.push([je.entry_number, je.date, je.source_type, `"${je.payee || ''}"`, `"${je.memo || ''}"`, a.code, `"${a.name || ''}"`, jl.debit.toFixed(2), jl.credit.toFixed(2), jl.reconciled_status]);
+        rows.push([csvText(je.entry_number), je.date, je.source_type, csvText(je.payee), csvText(je.memo), csvText(a.code), csvText(a.name), jl.debit.toFixed(2), jl.credit.toFixed(2), jl.reconciled_status]);
       }
       triggerBlobDownload('general_ledger_transactions.csv', rows.map((r) => r.join(',')).join('\r\n'));
     } else if (href.includes('report.csv')) {
       const pnl = computePnL(store, '2026-01-01', '2026-12-31');
       const rows = [['Account Code', 'Account Name', 'Type', 'Amount']];
-      for (const i of pnl.incomeAccounts) rows.push([i.code, `"${i.name}"`, 'INCOME', i.amount.toFixed(2)]);
-      for (const ex of pnl.expenseAccounts) rows.push([ex.code, `"${ex.name}"`, 'EXPENSE', ex.amount.toFixed(2)]);
+      for (const i of pnl.incomeAccounts) rows.push([csvText(i.code), csvText(i.name), 'INCOME', i.amount.toFixed(2)]);
+      for (const ex of pnl.expenseAccounts) rows.push([csvText(ex.code), csvText(ex.name), 'EXPENSE', ex.amount.toFixed(2)]);
       rows.push(['', 'NET INCOME', '', pnl.netIncome.toFixed(2)]);
       triggerBlobDownload('financial_report.csv', rows.map((r) => r.join(',')).join('\r\n'));
     }
